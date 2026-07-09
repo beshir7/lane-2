@@ -10,6 +10,7 @@ import { useLane } from "@/components/lane-provider";
 import { Avatar, Modal } from "@/components/primitives";
 import { EVENT_CATEGORIES } from "@/lib/reference";
 import type { Athlete } from "@/lib/types";
+import { downloadWordDoc } from "@/utils";
 import { useState } from "react";
 import { DisciplinePicker } from "./discipline-picker";
 import { PassportManager, VisaManager } from "./travel-managers";
@@ -36,9 +37,10 @@ export function AthleteFormModal({
   const docId = athlete?.id || newId;
   const [form, setForm] = useState<any>(
     athlete || {
-      first: "", last: "", nationality: "", gender: "F", dob: "",
+      first: "", last: "", nationality: "", gender: "", dob: "",
       specialty: "", category: "long", squad: "Senior B",
       status: "active", coach: "",
+      heightUnit: "cm", weightUnit: "kg",
       bio: "",
       color: "#f55b6e",
       contact: { email: "", phone: "" },
@@ -87,6 +89,33 @@ export function AthleteFormModal({
     }
   };
 
+  // Stampa — generate a Word biography document (photo_34) and download it.
+  const printBio = () => {
+    const esc = (s: any) => String(s ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]!));
+    const fullName = `${form.first} ${form.last}`.trim();
+    const age = form.dob ? new Date().getFullYear() - parseInt(form.dob.slice(0, 4)) : form.age;
+    const rows = ([
+      [t("athlete.dob"), [form.dob, form.placeOfBirth].filter(Boolean).join(" · ")],
+      [t("athlete.nationality"), form.nationality],
+      [t("athlete.height"), form.height ? `${form.height} cm` : ""],
+      [t("athlete.weight"), form.weight ? `${form.weight} kg` : ""],
+      [t("athlete.residence"), form.residence],
+      [t("athlete.club"), form.club],
+      [t("athlete.coach"), form.coach],
+      [t("athlete.sponsor"), form.sponsor],
+      [t("athlete.email"), form.contact?.email],
+      [t("athlete.phone"), form.contact?.phone],
+    ] as [string, any][]).filter(([, v]) => v);
+    const dataTable = `<table class="dl">${rows.map(([k, v]) => `<tr><td class="k">${esc(k)}</td><td>${esc(v)}</td></tr>`).join("")}</table>`;
+    const pbRows = Object.entries(form.pb || {}).filter(([, m]) => m);
+    const pbTable = pbRows.length
+      ? `<h2>${esc(t("athlete.personalBest"))}</h2><table><tr><th>${esc(t("athlete.discipline"))}</th><th>${esc(t("athlete.time"))}</th></tr>${pbRows.map(([d, m]) => `<tr><td>${esc(d)}</td><td>${esc(m)}</td></tr>`).join("")}</table>`
+      : "";
+    const bio = form.bio ? `<h2>${esc(t("athlete.biography"))}</h2><p class="bio">${esc(form.bio)}</p>` : "";
+    const body = `<h1>${esc(fullName)}</h1><p class="sub">${esc([form.nationality, form.specialty, age ? `${age}` : ""].filter(Boolean).join(" · "))}</p><h2>${esc(t("athlete.personalData"))}</h2>${dataTable}${pbTable}${bio}`;
+    downloadWordDoc(`biografia-${fullName.replace(/\s+/g, "-").toLowerCase() || "atleta"}`, body, fullName);
+  };
+
   // If a NEW athlete is abandoned, remove any passports/visas that were attached
   // to the not-yet-created athlete so they don't linger as orphans.
   const handleClose = () => {
@@ -110,6 +139,7 @@ export function AthleteFormModal({
               <Icon name="trash" size={13} /> {t("athlete.delete")}
             </button>
           )}
+          <button className="btn btn-secondary" onClick={printBio}><Icon name="fileText" size={13} /> {t("athlete.printBio")}</button>
           <button className="btn btn-secondary" onClick={handleClose}>{t("common.cancel")}</button>
           <button className="btn btn-primary" onClick={submit}>{isNew ? t("athlete.create") : t("common.save")}</button>
         </>
@@ -144,11 +174,30 @@ export function AthleteFormModal({
             <input className="input" value={form.last} onChange={(e) => update("last", e.target.value)} aria-invalid={!!errors.last} />
             {errors.last && <span className="field-error"><Icon name="alert" size={11} /> {errors.last}</span>}
           </div>
-          <div className="field"><label className="field-label">{t("athlete.height")}</label><input type="number" className="input" value={form.height || ""} onChange={(e) => update("height", e.target.value ? Number(e.target.value) : undefined)} /></div>
-          <div className="field"><label className="field-label">{t("athlete.weight")}</label><input type="number" className="input" value={form.weight || ""} onChange={(e) => update("weight", e.target.value ? Number(e.target.value) : undefined)} /></div>
+          <div className="field">
+            <label className="field-label">{t("athlete.height")}</label>
+            <div className="input-group" style={{ padding: 0 }}>
+              <input type="number" className="input" value={form.height || ""} onChange={(e) => update("height", e.target.value ? Number(e.target.value) : undefined)} />
+              <select className="input" style={{ width: 66, flex: "none", borderLeft: "1px solid var(--border-1)" }} value={form.heightUnit || "cm"} onChange={(e) => update("heightUnit", e.target.value)}>
+                <option value="cm">cm</option>
+                <option value="ft">ft</option>
+              </select>
+            </div>
+          </div>
+          <div className="field">
+            <label className="field-label">{t("athlete.weight")}</label>
+            <div className="input-group" style={{ padding: 0 }}>
+              <input type="number" className="input" value={form.weight || ""} onChange={(e) => update("weight", e.target.value ? Number(e.target.value) : undefined)} />
+              <select className="input" style={{ width: 66, flex: "none", borderLeft: "1px solid var(--border-1)" }} value={form.weightUnit || "kg"} onChange={(e) => update("weightUnit", e.target.value)}>
+                <option value="kg">kg</option>
+                <option value="lb">lb</option>
+              </select>
+            </div>
+          </div>
           <div className="field">
             <label className="field-label">{t("athlete.gender")}</label>
             <select className="input" value={form.gender} onChange={(e) => update("gender", e.target.value)}>
+              <option value="" disabled>—</option>
               <option value="F">F</option>
               <option value="M">M</option>
             </select>
@@ -161,10 +210,7 @@ export function AthleteFormModal({
           <div className="field"><label className="field-label">{t("athlete.nationality")}</label><input className="input" value={form.nationality} onChange={(e) => update("nationality", e.target.value)} /></div>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 10 }}>
-          <div className="field"><label className="field-label">{t("athlete.residence")}</label><input className="input" value={form.residence || ""} onChange={(e) => update("residence", e.target.value)} /></div>
-          <div className="field"><label className="field-label">{t("athlete.maritalStatus")}</label><input className="input" value={form.maritalStatus || ""} onChange={(e) => update("maritalStatus", e.target.value)} /></div>
-        </div>
+        <div className="field"><label className="field-label">{t("athlete.residence")}</label><input className="input" value={form.residence || ""} onChange={(e) => update("residence", e.target.value)} /></div>
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
           <div className="field">
@@ -195,27 +241,14 @@ export function AthleteFormModal({
               <option value="M">(M) Monica</option>
             </select>
           </div>
-          <div className="field"><label className="field-label">{t("athlete.employment")}</label><input className="input" placeholder="Athlete…" value={form.employment || ""} onChange={(e) => update("employment", e.target.value)} /></div>
-          <div className="field"><label className="field-label">{t("athlete.taxCode")}</label><input className="input" value={form.taxCode || ""} onChange={(e) => update("taxCode", e.target.value)} /></div>
-          <div className="field"><label className="field-label">{t("athlete.fidal")}</label><input className="input" value={form.fidalNumber || ""} onChange={(e) => update("fidalNumber", e.target.value)} /></div>
           <div className="field"><label className="field-label">{t("athlete.sponsor")}</label><input className="input" value={form.sponsor || ""} onChange={(e) => update("sponsor", e.target.value)} /></div>
           <div className="field"><label className="field-label">{t("athlete.shoeSize")}</label><input className="input" placeholder="9 uk…" value={form.shoeSize || ""} onChange={(e) => update("shoeSize", e.target.value)} /></div>
           <div className="field"><label className="field-label">{t("athlete.clothingSize")}</label><input className="input" placeholder="Medium…" value={form.clothingSize || ""} onChange={(e) => update("clothingSize", e.target.value)} /></div>
-          <div className="field"><label className="field-label">{t("athlete.club")}</label><input className="input" value={form.club || ""} onChange={(e) => update("club", e.target.value)} /></div>
           <div className="field"><label className="field-label">{t("athlete.coach")}</label><input className="input" value={form.coach || ""} onChange={(e) => update("coach", e.target.value)} /></div>
           <div className="field">
             <label className="field-label">{t("athlete.category")}</label>
             <select className="input" value={form.category} onChange={(e) => update("category", e.target.value)}>
               {Object.entries(EVENT_CATEGORIES).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
-            </select>
-          </div>
-          <div className="field">
-            <label className="field-label">{t("athlete.squad")}</label>
-            <select className="input" value={form.squad} onChange={(e) => update("squad", e.target.value)}>
-              <option>Senior A</option>
-              <option>Senior B</option>
-              <option>U23</option>
-              <option>U20</option>
             </select>
           </div>
           <div className="field">

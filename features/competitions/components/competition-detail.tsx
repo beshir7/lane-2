@@ -9,7 +9,8 @@ import { Avatar, Badge, EmptyState, Modal, Tabs } from "@/components/primitives"
 import { BigStat, DateStack, EntryStatusBadge, InfoRow } from "@/components/shared";
 import type { Athlete, Competition, EntryStatus, MeetingDiscipline, RaceEntry } from "@/lib/types";
 import { ALL_DISCIPLINES } from "@/lib/reference";
-import { downloadCsv } from "@/utils";
+import { downloadCsv, placementColor } from "@/utils";
+import { PlacementStats } from "@/components/placement-stats";
 import React, { useState } from "react";
 import { CompStatusBadge } from "./competitions-screen";
 
@@ -244,7 +245,7 @@ function CompEntriesTab({ entries, athletes, onAdd, onResult }: { entries: RaceE
       ) : (
         <table className="table">
           <thead>
-            <tr><th>Athlete</th><th>Discipline</th><th>Status</th><th>Result</th><th style={{ width: 120 }}></th></tr>
+            <tr><th>Athlete</th><th>Discipline</th><th>Status</th><th style={{ width: 120 }}></th></tr>
           </thead>
           <tbody>
             {entries.map((e) => (
@@ -257,11 +258,6 @@ function CompEntriesTab({ entries, athletes, onAdd, onResult }: { entries: RaceE
                 </td>
                 <td>{e.discipline} <span className="text-xs muted">({e.gender})</span></td>
                 <td><StatusSelect entry={e} /></td>
-                <td>
-                  {e.position != null || e.time ? (
-                    <span className="mono">{e.position ? `#${e.position}` : ""} {e.time}</span>
-                  ) : <span className="muted text-sm">—</span>}
-                </td>
                 <td>
                   <div className="row" style={{ gap: 4 }}>
                     <button className="btn btn-secondary btn-sm" onClick={() => onResult(e)}><Icon name="edit" size={12} /> Result</button>
@@ -278,28 +274,37 @@ function CompEntriesTab({ entries, athletes, onAdd, onResult }: { entries: RaceE
 }
 
 function CompResultsTab({ entries, athletes }: { entries: RaceEntry[]; athletes: Athlete[] }) {
+  const { t } = useLane();
   const nameOf = (id: string) => { const a = athletes.find((x) => x.id === id); return a ? `${a.first} ${a.last}` : id; };
   if (entries.length === 0) {
     return <div className="card"><EmptyState icon="trophy" title="No results yet" description="Results appear here once entered against an athlete." /></div>;
   }
   return (
+    <div className="col" style={{ gap: 12 }}>
+    <div className="card card-pad">
+      <PlacementStats entries={entries} totalLabelKey="stats.results" title={t("stats.thisRace")} />
+    </div>
     <div className="card">
       <div className="card-header"><div className="card-title">Results · {entries.length}</div></div>
       <table className="table">
         <thead><tr><th>Athlete</th><th>Discipline</th><th>Place</th><th>Time</th><th>Wind</th><th>Note</th></tr></thead>
         <tbody>
-          {entries.map((e) => (
-            <tr key={e.id}>
-              <td className="fw-600">{nameOf(e.athleteId)}</td>
-              <td>{e.discipline}</td>
-              <td>{e.position ? <Badge variant={e.position === 1 ? "warning" : e.position <= 3 ? "info" : ""}>#{e.position}</Badge> : "—"}</td>
-              <td className="display mono fw-700" style={{ color: "var(--accent)", fontSize: 16 }}>{e.time || "—"}</td>
-              <td className="text-sm mono">{e.wind || "—"}</td>
-              <td>{e.note && <Badge variant="success">{e.note}</Badge>}</td>
+          {entries.map((e) => {
+            const color = placementColor(e.position);
+            return (
+            <tr key={e.id} style={{ color }}>
+              <td className="fw-600" style={{ color }}>{nameOf(e.athleteId)}</td>
+              <td style={{ color }}>{e.discipline}</td>
+              <td style={{ color }}>{e.position ? <span className="fw-700 mono">#{e.position}</span> : "—"}</td>
+              <td className="display mono fw-700" style={{ color, fontSize: 16 }}>{e.time || "—"}</td>
+              <td className="text-sm mono" style={{ color }}>{e.wind || "—"}</td>
+              <td style={{ color }}>{e.note || ""}</td>
             </tr>
-          ))}
+            );
+          })}
         </tbody>
       </table>
+    </div>
     </div>
   );
 }
@@ -453,7 +458,7 @@ function DisciplineManagerModal({ competition, onClose }: { competition: Competi
   );
 }
 
-function ResultModal({ entry, athletes, onClose }: { entry: RaceEntry; athletes: Athlete[]; onClose: () => void }) {
+export function ResultModal({ entry, athletes, onClose }: { entry: RaceEntry; athletes: Athlete[]; onClose: () => void }) {
   const { updateEntry } = useLane();
   const a = athletes.find((x) => x.id === entry.athleteId);
   const [position, setPosition] = useState<string>(entry.position != null ? String(entry.position) : "");

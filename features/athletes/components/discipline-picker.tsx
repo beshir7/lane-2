@@ -97,8 +97,8 @@ export function DisciplinePicker({
       title={t("disc.title")}
       footer={
         <>
-          <button className="btn btn-secondary" onClick={onClose}>{t("common.close")}</button>
-          <button className="btn btn-primary" onClick={() => onSave(selected)}>{t("common.save")}</button>
+          <button className="btn btn-secondary" onClick={onClose}>{t("common.exit")}</button>
+          <button className="btn btn-primary" onClick={() => onSave(selected)}>{t("common.modify")}</button>
         </>
       }
     >

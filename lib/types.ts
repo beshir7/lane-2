@@ -73,8 +73,10 @@ export interface Athlete {
   taxCode?: string;
   fidalNumber?: string;
   club?: string;
-  height?: number; // cm
-  weight?: number; // kg
+  height?: number; // value in `heightUnit`
+  heightUnit?: "cm" | "ft";
+  weight?: number; // value in `weightUnit`
+  weightUnit?: "kg" | "lb";
   sponsor?: string;
   shoeSize?: string;
   clothingSize?: string;
@@ -201,6 +203,12 @@ export interface Competition {
   category?: RaceCategory;      // marathon | half-marathon | road | cross | meeting | indoor
   level?: string;              // "DL", "Gold", "Silver", "Bronze", "Label", "int'l", "national"
   organizerId?: string | null;
+  // Race organizer contact typed directly on the race form (photo_19, caption 22):
+  // surname, name, phone, e-mail address.
+  contactSurname?: string;
+  contactName?: string;
+  contactPhone?: string;
+  contactEmail?: string;
   disciplines?: MeetingDiscipline[];
   webSite?: string;
   notes?: string;
