@@ -7,7 +7,10 @@ import { Icon } from "@/components/icon";
 import { Avatar, Drawer, EmptyState, Segmented, Tag } from "@/components/primitives";
 import { EventTypeBadge, FilterDropdown, formatHour } from "@/components/shared";
 import { useLane } from "@/components/lane-provider";
+import { EntriesMatrixView } from "./entries-matrix";
 import type { Athlete, CalendarEvent, CalendarCategory } from "@/lib/types";
+
+type CalView = "plan" | "month" | "week" | "day";
 
 const getWeekStart = (d: Date) => {
   const out = new Date(d);
@@ -23,7 +26,9 @@ const catBg = (cat: string) =>
 
 export function CalendarScreen() {
   const { events, athletes, updateEvent, createEvent, deleteEvent } = useLane();
-  const [view, setView] = useState<"month" | "week" | "day">("month");
+  // Default to the race-planning matrix (DB-backed); switch to the calendar grids as needed.
+  const [view, setView] = useState<CalView>("plan");
+  const isTimeView = view === "month" || view === "week" || view === "day";
   const [cursor, setCursor] = useState(new Date(2026, 4, 21));
   const [filterCat, setFilterCat] = useState<Set<string>>(new Set(["competition", "training", "travel", "meeting"]));
   const [filterAthlete, setFilterAthlete] = useState("all");
@@ -71,29 +76,43 @@ export function CalendarScreen() {
 
       <div className="card" style={{ marginBottom: 12 }}>
         <div style={{ padding: 12, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-          <div className="row" style={{ gap: 4 }}>
-            <button className="btn btn-secondary btn-sm" onClick={() => moveCursor(-1)}><Icon name="chevronLeft" size={13} /></button>
-            <button className="btn btn-secondary btn-sm" onClick={today}>Today</button>
-            <button className="btn btn-secondary btn-sm" onClick={() => moveCursor(1)}><Icon name="chevronRight" size={13} /></button>
-          </div>
-          <div className="display fw-700" style={{ fontSize: 18, letterSpacing: "-0.02em", marginLeft: 8 }}>{title}</div>
+          {isTimeView && (
+            <>
+              <div className="row" style={{ gap: 4 }}>
+                <button className="btn btn-secondary btn-sm" onClick={() => moveCursor(-1)}><Icon name="chevronLeft" size={13} /></button>
+                <button className="btn btn-secondary btn-sm" onClick={today}>Today</button>
+                <button className="btn btn-secondary btn-sm" onClick={() => moveCursor(1)}><Icon name="chevronRight" size={13} /></button>
+              </div>
+              <div className="display fw-700" style={{ fontSize: 18, letterSpacing: "-0.02em", marginLeft: 8 }}>{title}</div>
+
+              <div className="row" style={{ gap: 5 }}>
+                <CategoryFilter cat="competition" label="Comps" color="var(--danger)" filterCat={filterCat} setFilterCat={setFilterCat} />
+                <CategoryFilter cat="training" label="Training" color="var(--success)" filterCat={filterCat} setFilterCat={setFilterCat} />
+                <CategoryFilter cat="travel" label="Travel" color="var(--warning)" filterCat={filterCat} setFilterCat={setFilterCat} />
+                <CategoryFilter cat="meeting" label="Meetings" color="var(--accent)" filterCat={filterCat} setFilterCat={setFilterCat} />
+              </div>
+
+              <FilterDropdown label="Athlete" value={filterAthlete} options={[{ v: "all", l: "All athletes" }, ...athletes.map((a) => ({ v: a.id, l: `${a.first} ${a.last}` }))]} onChange={setFilterAthlete} />
+            </>
+          )}
 
           <div className="spacer" />
 
-          <div className="row" style={{ gap: 5 }}>
-            <CategoryFilter cat="competition" label="Comps" color="var(--danger)" filterCat={filterCat} setFilterCat={setFilterCat} />
-            <CategoryFilter cat="training" label="Training" color="var(--success)" filterCat={filterCat} setFilterCat={setFilterCat} />
-            <CategoryFilter cat="travel" label="Travel" color="var(--warning)" filterCat={filterCat} setFilterCat={setFilterCat} />
-            <CategoryFilter cat="meeting" label="Meetings" color="var(--accent)" filterCat={filterCat} setFilterCat={setFilterCat} />
-          </div>
-
-          <FilterDropdown label="Athlete" value={filterAthlete} options={[{ v: "all", l: "All athletes" }, ...athletes.map((a) => ({ v: a.id, l: `${a.first} ${a.last}` }))]} onChange={setFilterAthlete} />
-
-          <Segmented options={[{ value: "month", label: "Month" }, { value: "week", label: "Week" }, { value: "day", label: "Day" }]} value={view} onChange={setView} />
+          <Segmented
+            options={[
+              { value: "plan", label: "Plan" },
+              { value: "month", label: "Month" },
+              { value: "week", label: "Week" },
+              { value: "day", label: "Day" },
+            ]}
+            value={view}
+            onChange={setView}
+          />
         </div>
       </div>
 
       <div className="card" style={{ padding: 16, overflow: "auto" }}>
+        {view === "plan" && <EntriesMatrixView />}
         {view === "month" && <MonthView cursor={cursor} events={filtered} onMoveEvent={moveEvent} onClickDate={(d) => setNewOnDate(d)} onClickEvent={setEditEvent} />}
         {view === "week" && <WeekView cursor={cursor} events={filtered} onMoveEvent={moveEvent} onClickEvent={setEditEvent} onClickSlot={(d, h) => setNewOnDate({ date: d, startHour: h })} />}
         {view === "day" && <DayView cursor={cursor} events={filtered} onClickEvent={setEditEvent} onClickSlot={(d, h) => setNewOnDate({ date: d, startHour: h })} />}

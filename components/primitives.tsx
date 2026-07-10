@@ -141,6 +141,35 @@ export function Modal({
   );
 }
 
+// A small in-app confirmation dialog (replaces window.confirm). Each choice is a
+// button; picking one runs its onClick. The X / backdrop / Escape cancels.
+export function ConfirmModal({
+  title,
+  message,
+  choices,
+  onCancel,
+}: {
+  title: ReactNode;
+  message: ReactNode;
+  choices: { label: string; variant?: "primary" | "secondary" | "ghost"; onClick: () => void }[];
+  onCancel: () => void;
+}) {
+  return (
+    <Modal
+      open
+      onClose={onCancel}
+      title={title}
+      footer={choices.map((c, i) => (
+        <button key={i} className={`btn btn-${c.variant || "secondary"}`} onClick={c.onClick}>
+          {c.label}
+        </button>
+      ))}
+    >
+      <div className="text-sm" style={{ lineHeight: 1.6 }}>{message}</div>
+    </Modal>
+  );
+}
+
 export function Drawer({
   open,
   onClose,

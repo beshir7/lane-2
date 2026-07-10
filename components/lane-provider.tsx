@@ -3,16 +3,20 @@
 // =========================================================================
 // LaneProvider — the single client-side source of truth.
 //
-// LOCAL MODE (for now): every collection starts EMPTY and is persisted to
-// localStorage. No network, no seed — so pages load instantly and you can
-// enter your own data to test. Swap the load/save effects for the REST API
-// (services/externalApi) when the backend/Supabase is wired.
+// SUPABASE MODE: the eight core collections (athletes, organizers,
+// competitions, race entries, visas, passports, calendar events, documents)
+// are loaded from and written to Supabase, scoped to the signed-in user by
+// Row-Level Security. Every mutation updates local state optimistically and
+// mirrors the change to the database. The remaining UI-only collections
+// (results, notifications, posts, …) live in memory for this session.
 // =========================================================================
 
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { useToast } from "./primitives";
+import { createClient } from "@/lib/supabase/client";
+import { fetchLaneData, saveRow, updateRow, deleteRow, clearAllRows } from "@/lib/supabase/lane-db";
 import type {
   Athlete,
   Competition,
@@ -35,7 +39,6 @@ import type {
 } from "@/lib/types";
 import { translate, type Lang } from "@/lib/i18n";
 
-const LS_KEY = "lane-data-v1";
 const LANG_KEY = "lane-lang";
 const newId = (p: string) => p + Math.random().toString(36).slice(2, 8);
 const today = () => new Date().toISOString().slice(0, 10);
@@ -130,6 +133,21 @@ const TWEAK_DEFAULTS: Tweaks = { theme: "dark", sidebar: "expanded", accent: "#6
 export function LaneProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
   const push = useToast();
+  const supabase = useMemo(() => createClient(), []);
+  // The signed-in user's id, stamped onto every insert so RLS accepts the row.
+  const userIdRef = useRef<string | null>(null);
+
+  // Mirror a database write to the server; surface a toast if it fails so an
+  // optimistic local change that didn't persist doesn't go unnoticed.
+  const persist = useCallback(
+    (p: PromiseLike<{ error: { message: string } | null }>) => {
+      Promise.resolve(p).then((res) => {
+        const error = (res as { error: { message: string } | null }).error;
+        if (error) push({ title: "Couldn't save to server", body: error.message, variant: "danger" });
+      });
+    },
+    [push]
+  );
 
   const [loading, setLoading] = useState(true);
   const [athletes, setAthletes] = useState<Athlete[]>([]);
@@ -191,42 +209,33 @@ export function LaneProvider({ children }: { children: ReactNode }) {
     document.documentElement.style.setProperty("--accent-soft", tweaks.accent + "22");
   }, [tweaks.theme, tweaks.accent]);
 
-  // ----- Load everything from localStorage once (instant, no network) -----
+  // ----- Load the eight core collections from Supabase (per-user via RLS) -----
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(LS_KEY);
-      if (raw) {
-        const d = JSON.parse(raw);
-        setAthletes(d.athletes ?? []);
-        setCompetitions(d.competitions ?? []);
-        setEvents(d.events ?? []);
-        setResults(d.results ?? {});
-        setNotifications(d.notifications ?? []);
-        setDocuments(d.documents ?? []);
-        setUsers(d.users ?? []);
-        setPosts(d.posts ?? []);
-        setActivity(d.activity ?? []);
-        setAudit(d.audit ?? []);
-        setSessions(d.sessions ?? []);
-        setPassports(d.passports ?? []);
-        setVisas(d.visas ?? []);
-        setOrganizers(d.organizers ?? []);
-        setEntries(d.entries ?? []);
+    let active = true;
+    (async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!active) return;
+      if (!user) { setLoading(false); return; } // middleware will redirect to /signin
+      userIdRef.current = user.id;
+      try {
+        const d = await fetchLaneData(supabase);
+        if (!active) return;
+        setAthletes(d.athletes);
+        setCompetitions(d.competitions);
+        setOrganizers(d.organizers);
+        setEntries(d.entries);
+        setVisas(d.visas);
+        setPassports(d.passports);
+        setEvents(d.events);
+        setDocuments(d.documents);
+      } catch {
+        // leave collections empty; a toast on first write will report issues
+      } finally {
+        if (active) setLoading(false);
       }
-    } catch {}
-    setLoading(false);
-  }, []);
-
-  // ----- Persist every change back to localStorage -----
-  useEffect(() => {
-    if (loading) return;
-    try {
-      localStorage.setItem(
-        LS_KEY,
-        JSON.stringify({ athletes, competitions, events, results, notifications, documents, users, posts, activity, audit, sessions, passports, visas, organizers, entries })
-      );
-    } catch {}
-  }, [loading, athletes, competitions, events, results, notifications, documents, users, posts, activity, audit, sessions, passports, visas, organizers, entries]);
+    })();
+    return () => { active = false; };
+  }, [supabase]);
 
   // ----- Navigation -----
   const navigate = useCallback<LaneContextValue["navigate"]>((page, arg) => {
@@ -259,35 +268,43 @@ export function LaneProvider({ children }: { children: ReactNode }) {
       initials: data.initials || ((data.first?.[0] || "") + (data.last?.[0] || "")).toUpperCase(),
     } as Athlete;
     setAthletes((prev) => [a, ...prev]);
+    if (userIdRef.current) persist(saveRow(supabase, userIdRef.current, "athlete", a));
     push({ title: "Athlete added", body: `${a.first} ${a.last}`, variant: "success" });
-  }, [push]);
+  }, [push, persist, supabase]);
   const updateAthlete = useCallback((id: string, data: Partial<Athlete>) => {
     setAthletes((prev) => prev.map((a) => (a.id === id ? { ...a, ...data } : a)));
+    persist(updateRow(supabase, "athlete", id, data));
     push({ title: "Profile saved", variant: "success" });
-  }, [push]);
+  }, [push, persist, supabase]);
   const deleteAthlete = useCallback((id: string) => {
+    // FK cascade removes the athlete's passports, visas and entries server-side.
     setAthletes((prev) => prev.filter((x) => x.id !== id));
     setPassports((prev) => prev.filter((p) => p.athleteId !== id));
     setVisas((prev) => prev.filter((v) => v.athleteId !== id));
     setEntries((prev) => prev.filter((e) => e.athleteId !== id));
+    persist(deleteRow(supabase, "athlete", id));
     push({ title: "Athlete removed", variant: "info" });
-  }, [push]);
+  }, [push, persist, supabase]);
 
   // ----- Competitions & results -----
   const createCompetition = useCallback((data: Partial<Competition>) => {
     const c = { events: [], disciplines: [], entries: 0, results: 0, status: "upcoming", tier: "tier-1", ...data, id: data.id || newId("c") } as Competition;
     setCompetitions((prev) => [c, ...prev]);
+    if (userIdRef.current) persist(saveRow(supabase, userIdRef.current, "competition", c));
     push({ title: "Competition created", body: c.name, variant: "success" });
-  }, [push]);
+  }, [push, persist, supabase]);
   const updateCompetition = useCallback((id: string, data: Partial<Competition>) => {
     setCompetitions((prev) => prev.map((c) => (c.id === id ? { ...c, ...data } : c)));
+    persist(updateRow(supabase, "competition", id, data));
     push({ title: "Competition saved", variant: "success" });
-  }, [push]);
+  }, [push, persist, supabase]);
   const deleteCompetition = useCallback((id: string) => {
+    // FK cascade removes this competition's race entries server-side.
     setCompetitions((prev) => prev.filter((c) => c.id !== id));
     setEntries((prev) => prev.filter((e) => e.competitionId !== id));
+    persist(deleteRow(supabase, "competition", id));
     push({ title: "Competition removed", variant: "info" });
-  }, [push]);
+  }, [push, persist, supabase]);
   const loadResults = useCallback(() => {}, []);
   const addResult = useCallback((compId: string, r: Partial<Result>) => {
     const place = Number(r.place ?? 1);
@@ -301,16 +318,19 @@ export function LaneProvider({ children }: { children: ReactNode }) {
   const createEvent = useCallback((data: Partial<CalendarEvent>) => {
     const e = { athletes: [], category: "training", startHour: 9, duration: 1.5, location: "", ...data, id: data.id || newId("e") } as CalendarEvent;
     setEvents((prev) => [e, ...prev]);
+    if (userIdRef.current) persist(saveRow(supabase, userIdRef.current, "event", e));
     push({ title: "Event scheduled", body: e.title, variant: "success" });
-  }, [push]);
+  }, [push, persist, supabase]);
   const updateEvent = useCallback((id: string, data: Partial<CalendarEvent>) => {
     setEvents((prev) => prev.map((e) => (e.id === id ? { ...e, ...data } : e)));
+    persist(updateRow(supabase, "event", id, data));
     push({ title: "Event updated", variant: "info" });
-  }, [push]);
+  }, [push, persist, supabase]);
   const deleteEvent = useCallback((id: string) => {
     setEvents((prev) => prev.filter((e) => e.id !== id));
+    persist(deleteRow(supabase, "event", id));
     push({ title: "Event removed", variant: "info" });
-  }, [push]);
+  }, [push, persist, supabase]);
 
   // ----- Documents -----
   const addDocuments = useCallback((files: { name: string; size?: string }[]) => {
@@ -319,12 +339,14 @@ export function LaneProvider({ children }: { children: ReactNode }) {
       return { id: newId("d"), name: f.name, type: isPdf ? "pdf" : "image", icon: isPdf ? "filePdf" : "fileImage", category: "media", size: f.size || "—", athleteId: null, uploaded: today(), expires: null } as LaneDocument;
     });
     setDocuments((prev) => [...created, ...prev]);
+    if (userIdRef.current) created.forEach((d) => persist(saveRow(supabase, userIdRef.current!, "document", d)));
     push({ title: `${created.length} file${created.length > 1 ? "s" : ""} added`, variant: "success" });
-  }, [push]);
+  }, [push, persist, supabase]);
   const deleteDocument = useCallback((id: string) => {
     setDocuments((prev) => prev.filter((d) => d.id !== id));
+    persist(deleteRow(supabase, "document", id));
     push({ title: "Document deleted", variant: "info" });
-  }, [push]);
+  }, [push, persist, supabase]);
 
   // ----- Users -----
   const inviteUser = useCallback((data: Partial<TeamUser>) => {
@@ -356,63 +378,80 @@ export function LaneProvider({ children }: { children: ReactNode }) {
 
   // ----- Passports -----
   const createPassport = useCallback((data: Partial<Passport>) => {
-    setPassports((prev) => [{ nation: "", number: "", issued: "", expiry: "", note: "", ...data, id: data.id || newId("pp") } as Passport, ...prev]);
+    const pp = { nation: "", number: "", issued: "", expiry: "", note: "", ...data, id: data.id || newId("pp") } as Passport;
+    setPassports((prev) => [pp, ...prev]);
+    if (userIdRef.current) persist(saveRow(supabase, userIdRef.current, "passport", pp));
     push({ title: "Passport added", variant: "success" });
-  }, [push]);
+  }, [push, persist, supabase]);
   const updatePassport = useCallback((id: string, data: Partial<Passport>) => {
     setPassports((prev) => prev.map((x) => (x.id === id ? { ...x, ...data } : x)));
+    persist(updateRow(supabase, "passport", id, data));
     push({ title: "Passport updated", variant: "info" });
-  }, [push]);
+  }, [push, persist, supabase]);
   const deletePassport = useCallback((id: string) => {
     setPassports((prev) => prev.filter((x) => x.id !== id));
+    persist(deleteRow(supabase, "passport", id));
     push({ title: "Passport removed", variant: "info" });
-  }, [push]);
+  }, [push, persist, supabase]);
 
   // ----- Visas -----
   const createVisa = useCallback((data: Partial<Visa>) => {
-    setVisas((prev) => [{ kind: "Other", type: "", event: "", validFrom: "", validTo: "", embassy: "", sentToFederation: false, note: "", ...data, id: data.id || newId("v") } as Visa, ...prev]);
+    const v = { kind: "Other", type: "", event: "", validFrom: "", validTo: "", embassy: "", sentToFederation: false, note: "", ...data, id: data.id || newId("v") } as Visa;
+    setVisas((prev) => [v, ...prev]);
+    if (userIdRef.current) persist(saveRow(supabase, userIdRef.current, "visa", v));
     push({ title: "Visa added", variant: "success" });
-  }, [push]);
+  }, [push, persist, supabase]);
   const updateVisa = useCallback((id: string, data: Partial<Visa>) => {
     setVisas((prev) => prev.map((x) => (x.id === id ? { ...x, ...data } : x)));
+    persist(updateRow(supabase, "visa", id, data));
     push({ title: "Visa updated", variant: "info" });
-  }, [push]);
+  }, [push, persist, supabase]);
   const deleteVisa = useCallback((id: string) => {
     setVisas((prev) => prev.filter((x) => x.id !== id));
+    persist(deleteRow(supabase, "visa", id));
     push({ title: "Visa removed", variant: "info" });
-  }, [push]);
+  }, [push, persist, supabase]);
 
   // ----- Organizers -----
   const createOrganizer = useCallback((data: Partial<Organizer>) => {
-    setOrganizers((prev) => [{ name: "", email: "", phone: "", nation: "", ...data, id: data.id || newId("o") } as Organizer, ...prev]);
+    const o = { name: "", email: "", phone: "", nation: "", ...data, id: data.id || newId("o") } as Organizer;
+    setOrganizers((prev) => [o, ...prev]);
+    if (userIdRef.current) persist(saveRow(supabase, userIdRef.current, "organizer", o));
     push({ title: "Organizer added", body: data.name, variant: "success" });
-  }, [push]);
+  }, [push, persist, supabase]);
   const updateOrganizer = useCallback((id: string, data: Partial<Organizer>) => {
     setOrganizers((prev) => prev.map((x) => (x.id === id ? { ...x, ...data } : x)));
+    persist(updateRow(supabase, "organizer", id, data));
     push({ title: "Organizer updated", variant: "info" });
-  }, [push]);
+  }, [push, persist, supabase]);
   const deleteOrganizer = useCallback((id: string) => {
     setOrganizers((prev) => prev.filter((x) => x.id !== id));
+    persist(deleteRow(supabase, "organizer", id));
     push({ title: "Organizer removed", variant: "info" });
-  }, [push]);
+  }, [push, persist, supabase]);
 
   // ----- Race entries (recount keeps competition counts in sync) -----
   const recount = useCallback((competitionId: string, list: RaceEntry[]) => {
     const forComp = list.filter((e) => e.competitionId === competitionId);
-    setCompetitions((prev) => prev.map((c) => (c.id === competitionId ? { ...c, entries: forComp.length, results: forComp.filter((e) => e.position != null || e.time).length } : c)));
-  }, []);
+    const counts = { entries: forComp.length, results: forComp.filter((e) => e.position != null || e.time).length };
+    setCompetitions((prev) => prev.map((c) => (c.id === competitionId ? { ...c, ...counts } : c)));
+    persist(updateRow(supabase, "competition", competitionId, counts));
+  }, [persist, supabase]);
   const createEntry = useCallback((data: Partial<RaceEntry>) => {
     const entry = { discipline: "", gender: "M", status: "proposed", time: "", wind: "", note: "", ...data, id: data.id || newId("en") } as RaceEntry;
     setEntries((prev) => { const next = [entry, ...prev]; recount(entry.competitionId, next); return next; });
+    if (userIdRef.current) persist(saveRow(supabase, userIdRef.current, "entry", entry));
     push({ title: "Athlete entered", variant: "success" });
-  }, [push, recount]);
+  }, [push, persist, supabase, recount]);
   const updateEntry = useCallback((id: string, data: Partial<RaceEntry>) => {
     setEntries((prev) => { const next = prev.map((x) => (x.id === id ? { ...x, ...data } : x)); const e = next.find((x) => x.id === id); if (e) recount(e.competitionId, next); return next; });
-  }, [recount]);
+    persist(updateRow(supabase, "entry", id, data));
+  }, [persist, supabase, recount]);
   const deleteEntry = useCallback((id: string) => {
     setEntries((prev) => { const gone = prev.find((x) => x.id === id); const next = prev.filter((x) => x.id !== id); if (gone) recount(gone.competitionId, next); return next; });
+    persist(deleteRow(supabase, "entry", id));
     push({ title: "Entry removed", variant: "info" });
-  }, [push, recount]);
+  }, [push, persist, supabase, recount]);
 
   // ----- Notifications -----
   const markAllRead = useCallback(() => {
@@ -424,9 +463,9 @@ export function LaneProvider({ children }: { children: ReactNode }) {
   const resetAll = useCallback(() => {
     setAthletes([]); setCompetitions([]); setEvents([]); setResults({}); setNotifications([]); setDocuments([]);
     setUsers([]); setPosts([]); setActivity([]); setAudit([]); setSessions([]); setPassports([]); setVisas([]); setOrganizers([]); setEntries([]);
-    try { localStorage.removeItem(LS_KEY); } catch {}
+    if (userIdRef.current) persist(clearAllRows(supabase, userIdRef.current).then(() => ({ error: null })));
     push({ title: "All data cleared", variant: "info" });
-  }, [push]);
+  }, [push, persist, supabase]);
 
   const unreadCount = notifications.filter((n) => n.unread).length;
 

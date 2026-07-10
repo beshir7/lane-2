@@ -3,11 +3,11 @@
 // Sidebar — navigation for Lane 2 AMS.
 // Variants: expanded (default), rail (icons only), floating (detached card).
 
+import { LANGS } from "@/lib/i18n";
 import { usePathname } from "next/navigation";
 import { Icon } from "./icon";
-import { Avatar, BrandMark } from "./primitives";
 import { useLane } from "./lane-provider";
-import { LANGS } from "@/lib/i18n";
+import { Avatar, BrandMark } from "./primitives";
 
 function LanguageSwitch() {
   const { lang, setLang, t } = useLane();
@@ -68,14 +68,6 @@ export function Sidebar() {
         { id: "organizers", label: t("nav.organizers"), icon: "users" },
         { id: "calendar", label: t("nav.calendar"), icon: "calendar" },
         { id: "documents", label: t("nav.documents"), icon: "document" },
-      ],
-    },
-    {
-      label: t("section.publishing"),
-      items: [
-        { id: "cms", label: t("nav.content"), icon: "cms" },
-        { id: "reports", label: t("nav.reports"), icon: "fileText" },
-        { id: "notifications", label: t("nav.notifications"), icon: "bell", badge: unreadCount || undefined, badgeAccent: true },
       ],
     },
     {

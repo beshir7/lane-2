@@ -2,16 +2,16 @@
 
 // Races list + create modal.
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "@/components/icon";
-import { Avatar, Badge, Modal, Segmented, Tabs } from "@/components/primitives";
-import { DateStack } from "@/components/shared";
+import { Avatar, Badge, ConfirmModal, Modal, Segmented, Tabs } from "@/components/primitives";
+import { DateStack, EntryStatusBadge } from "@/components/shared";
 import { PlacementStats } from "@/components/placement-stats";
 import { useLane } from "@/components/lane-provider";
 import { ALL_DISCIPLINES } from "@/lib/reference";
-import { placementColor } from "@/utils";
+import { placementColor, downloadWordDoc } from "@/utils";
 import { RACE_LEVELS } from "@/lib/types";
-import type { Athlete, Competition, CompetitionStatus, Organizer, RaceCategory, RaceEntry } from "@/lib/types";
+import type { Athlete, Competition, CompetitionStatus, EntryStatus, Organizer, RaceCategory, RaceEntry } from "@/lib/types";
 import { OrganizerPicker } from "@/features/organizers/components/organizer-picker";
 import { ResultModal } from "./competition-detail";
 
@@ -75,6 +75,34 @@ export function raceColorKey(dateIso: string): RaceColor {
 }
 export function raceColor(dateIso: string): string {
   return RACE_COLORS[raceColorKey(dateIso)];
+}
+
+// Time-range filter (caption): Today / This week / This month / This year /
+// Future (more than a year away).
+type WhenKey = "all" | "today" | "week" | "month" | "year" | "future";
+const WHEN_OPTIONS: { v: WhenKey; l: string }[] = [
+  { v: "all", l: "All dates" },
+  { v: "today", l: "Today" },
+  { v: "week", l: "This week" },
+  { v: "month", l: "This month" },
+  { v: "year", l: "This year" },
+  { v: "future", l: "Future (>1 year)" },
+];
+function inWhen(dateIso: string, when: WhenKey): boolean {
+  if (when === "all") return true;
+  const d = new Date((dateIso || "") + "T00:00");
+  if (isNaN(d.getTime())) return false;
+  const now = new Date(); now.setHours(0, 0, 0, 0);
+  if (when === "today") return d.getTime() === now.getTime();
+  if (when === "week") {
+    const start = new Date(now); start.setDate(now.getDate() - now.getDay());
+    const end = new Date(start); end.setDate(start.getDate() + 7);
+    return d >= start && d < end;
+  }
+  if (when === "month") return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+  if (when === "year") return d.getFullYear() === now.getFullYear();
+  if (when === "future") { const oneYear = new Date(now); oneYear.setFullYear(now.getFullYear() + 1); return d > oneYear; }
+  return true;
 }
 
 function RaceLegend() {
@@ -170,7 +198,7 @@ function CategorySearchFilter({
           ))}
           {history.length > 0 && (
             <>
-              <div className="text-xs muted" style={{ padding: "6px 10px 2px", textTransform: "uppercase", letterSpacing: "0.05em" }}>{t("races.recent")}</div>
+              {suggestions.length > 0 && <div style={{ height: 1, background: "var(--border-1)", margin: "4px 0" }} />}
               {history.map((h) => (
                 <button
                   key={h}
@@ -201,26 +229,37 @@ export function CompetitionsScreen() {
   const [filter, setFilter] = useState<"all" | CompetitionStatus>("all");
   const [catQuery, setCatQuery] = useState("");
   const [catHistory, setCatHistory] = useState<string[]>([]);
+  const [when, setWhen] = useState<WhenKey>("all");
   const [monthFilter, setMonthFilter] = useState(""); // "YYYY-MM"
   const [search, setSearch] = useState("");
   const [showCreate, setShowCreate] = useState(false);
   const [selectedRaceId, setSelectedRaceId] = useState<string | null>(null);
   const [page, setPage] = useState(0);
   const [resultFor, setResultFor] = useState<RaceEntry | null>(null);
+  const [editEntry, setEditEntry] = useState<RaceEntry | null>(null);
   const PAGE_SIZE = 10;
 
   const pushHistory = (q: string) => setCatHistory((prev) => [q, ...prev.filter((h) => h !== q)].slice(0, 6));
 
   // Any filter change resets to the first page of the races list.
-  useEffect(() => { setPage(0); }, [filter, catQuery, monthFilter, search]);
+  useEffect(() => { setPage(0); }, [filter, catQuery, monthFilter, search, when]);
 
   const catSet = parseCategoryQuery(catQuery);
+  // Row order (caption): today first, then upcoming, then future-year, then past.
+  // Within a group races run soonest-first, except past ones show most-recent-first.
+  const RACE_ORDER: Record<RaceColor, number> = { today: 0, upcoming: 1, nextyear: 2, past: 3 };
   const filtered = competitions
     .filter((c) => (filter === "all" ? true : c.status === filter))
     .filter((c) => (catSet.length === 0 ? true : c.category ? catSet.includes(c.category) : false))
+    .filter((c) => inWhen(c.date, when))
     .filter((c) => (!monthFilter ? true : (c.date || "").slice(0, 7) === monthFilter))
     .filter((c) => !search || c.name.toLowerCase().includes(search.toLowerCase()) || c.location.toLowerCase().includes(search.toLowerCase()))
-    .sort((a, b) => +new Date(a.date) - +new Date(b.date));
+    .sort((a, b) => {
+      const ka = raceColorKey(a.date), kb = raceColorKey(b.date);
+      if (RACE_ORDER[ka] !== RACE_ORDER[kb]) return RACE_ORDER[ka] - RACE_ORDER[kb];
+      const da = +new Date(a.date), db = +new Date(b.date);
+      return ka === "past" ? db - da : da - db;
+    });
 
   const counts = {
     all: competitions.length,
@@ -271,10 +310,16 @@ export function CompetitionsScreen() {
             <input className="input" placeholder={t("races.searchPlaceholder")} value={search} onChange={(e) => setSearch(e.target.value)} />
           </div>
           <CategorySearchFilter value={catQuery} onChange={setCatQuery} history={catHistory} onCommit={pushHistory} />
-          <div className="input-group" style={{ maxWidth: 168 }} title={t("races.month")}>
+          <div className="input-group" style={{ width: 170, flex: "0 0 auto" }} title="When">
+            <Icon name="clock" size={14} />
+            <select className="input" style={{ flex: 1, minWidth: 0, width: "auto", border: "none", background: "transparent" }} value={when} onChange={(e) => setWhen(e.target.value as WhenKey)}>
+              {WHEN_OPTIONS.map((o) => <option key={o.v} value={o.v}>{o.l}</option>)}
+            </select>
+          </div>
+          <div className="input-group" style={{ width: 190, flex: "0 0 auto" }} title={t("races.month")}>
             <Icon name="calendar" size={14} />
-            <input className="input" type="month" value={monthFilter} onChange={(e) => setMonthFilter(e.target.value)} />
-            {monthFilter && <button className="icon-btn" title={t("common.clear")} onClick={() => setMonthFilter("")}><Icon name="close" size={13} /></button>}
+            <input className="input" style={{ flex: 1, minWidth: 0, width: "auto", paddingRight: monthFilter ? 30 : 10 }} type="month" value={monthFilter} onChange={(e) => setMonthFilter(e.target.value)} />
+            {monthFilter && <button className="icon-btn" style={{ position: "absolute", right: 4, flex: "none" }} title={t("common.clear")} onClick={() => setMonthFilter("")}><Icon name="close" size={13} /></button>}
           </div>
           <Segmented options={[{ value: "table", icon: "list", label: "Table" }, { value: "cards", icon: "grid", label: "Cards" }]} value={view} onChange={setView} />
         </div>
@@ -331,6 +376,7 @@ export function CompetitionsScreen() {
               entries={selectedEntries}
               athletes={athletes}
               onEditResult={setResultFor}
+              onEditEntry={setEditEntry}
               onOpen={() => selectedRaceId && navigate("competition-detail", selectedRaceId)}
             />
           </div>
@@ -347,21 +393,27 @@ export function CompetitionsScreen() {
       )}
 
       {resultFor && <ResultModal entry={resultFor} athletes={athletes} onClose={() => setResultFor(null)} />}
+      {editEntry && <EntryEditModal entry={editEntry} race={competitions.find((c) => c.id === editEntry.competitionId) || null} athletes={athletes} onClose={() => setEditEntry(null)} />}
       {showCreate && <CompetitionFormModal organizers={organizers} athletes={athletes} onClose={() => setShowCreate(false)} onSave={(d) => { createCompetition(d); setShowCreate(false); }} />}
     </div>
   );
 }
 
+const ENTRY_STATUS_KEYS: EntryStatus[] = ["proposed", "waiting", "accepted", "ok"];
+
 // The selected race's competing athletes (photo_25): Name · Discipline · Position
-// · Time, coloured by placement. Results are edited by right-clicking a row (a
-// modern take on the old right-mouse action) — or double-click / the pencil.
-function RaceEntriesPanel({ race, entries, athletes, onEditResult, onOpen }: {
+// · Time, coloured by placement. Right-clicking a row opens the athlete's race
+// menu (photo_23): edit info (athlete/discipline), edit result, set status
+// (Da proporre / Lista attesa / Accettato / OK), or open the athlete.
+function RaceEntriesPanel({ race, entries, athletes, onEditResult, onEditEntry, onOpen }: {
   race: Competition | null;
   entries: RaceEntry[];
   athletes: Athlete[];
   onEditResult: (e: RaceEntry) => void;
+  onEditEntry: (e: RaceEntry) => void;
   onOpen: () => void;
 }) {
+  const { updateEntry, navigate, t } = useLane();
   const [menu, setMenu] = useState<{ x: number; y: number; entry: RaceEntry } | null>(null);
   const nameOf = (id: string) => { const a = athletes.find((x) => x.id === id); return a ? `${a.last}, ${a.first}` : id; };
   const colorOf = (id: string) => athletes.find((x) => x.id === id)?.color || "#5b6ef5";
@@ -387,6 +439,11 @@ function RaceEntriesPanel({ race, entries, athletes, onEditResult, onOpen }: {
   }
 
   const menuItem: React.CSSProperties = { display: "flex", alignItems: "center", gap: 8, padding: "7px 10px", borderRadius: 4, textAlign: "left", fontSize: 13, background: "transparent", color: "var(--fg-1)", width: "100%" };
+  const hoverOn = (e: React.MouseEvent<HTMLElement>) => (e.currentTarget.style.background = "var(--bg-2)");
+  const hoverOff = (e: React.MouseEvent<HTMLElement>) => (e.currentTarget.style.background = "transparent");
+  const setStatus = (e: RaceEntry, s: EntryStatus) => { updateEntry(e.id, { status: s }); setMenu(null); };
+  const menuLeft = menu ? Math.min(menu.x, (typeof window !== "undefined" ? window.innerWidth : 1200) - 236) : 0;
+  const menuTop = menu ? Math.min(menu.y, (typeof window !== "undefined" ? window.innerHeight : 800) - 320) : 0;
 
   return (
     <div className="card" style={{ flex: 1, minWidth: 0, overflow: "hidden" }}>
@@ -400,11 +457,11 @@ function RaceEntriesPanel({ race, entries, athletes, onEditResult, onOpen }: {
       <div className="table-wrap" style={{ maxHeight: "calc(100vh - 430px)", minHeight: 200, overflowY: "auto" }}>
         <table className="table" style={{ margin: 0 }}>
           <thead>
-            <tr><th>Name</th><th>Discipline</th><th style={{ width: 72 }}>Position</th><th style={{ width: 92 }}>Time</th><th style={{ width: 40 }}></th></tr>
+            <tr><th>Name</th><th>Discipline</th><th style={{ width: 96 }}>Status</th><th style={{ width: 64 }}>Pos.</th><th style={{ width: 82 }}>Time</th><th style={{ width: 40 }}></th></tr>
           </thead>
           <tbody>
             {entries.length === 0 ? (
-              <tr><td colSpan={5} className="text-sm muted" style={{ padding: 16 }}>No athletes entered in this race.</td></tr>
+              <tr><td colSpan={6} className="text-sm muted" style={{ padding: 16 }}>No athletes entered in this race.</td></tr>
             ) : entries.map((e) => {
               const color = e.position != null ? placementColor(e.position) : undefined;
               return (
@@ -419,10 +476,11 @@ function RaceEntriesPanel({ race, entries, athletes, onEditResult, onOpen }: {
                     </div>
                   </td>
                   <td style={{ color }}>{e.discipline}</td>
+                  <td><EntryStatusBadge status={e.status} /></td>
                   <td className="fw-700 mono" style={{ color }}>{placeText(e)}</td>
                   <td className="mono" style={{ color }}>{e.time || "—"}</td>
                   <td onClick={(ev) => ev.stopPropagation()}>
-                    <button className="icon-btn" title="Edit result" onClick={() => onEditResult(e)}><Icon name="edit" size={13} /></button>
+                    <button className="icon-btn" title="Edit athlete / discipline" onClick={() => onEditEntry(e)}><Icon name="edit" size={13} /></button>
                   </td>
                 </tr>
               );
@@ -430,17 +488,63 @@ function RaceEntriesPanel({ race, entries, athletes, onEditResult, onOpen }: {
           </tbody>
         </table>
       </div>
-      <div className="text-xs muted" style={{ padding: "8px 14px", borderTop: "1px solid var(--border-1)" }}>
-        Right-click (or double-click) an athlete to edit their result.
+      <div className="row" style={{ gap: 8, padding: "12px 14px", borderTop: "1px solid var(--border-1)", color: "var(--accent)" }}>
+        <Icon name="info" size={16} />
+        <span className="fw-700" style={{ fontSize: 15 }}>Right-click an athlete to edit info, result or status.</span>
       </div>
 
       {menu && (
-        <div style={{ position: "fixed", top: menu.y, left: menu.x, zIndex: 50, background: "var(--bg-1)", border: "1px solid var(--border-2)", borderRadius: "var(--r-md)", boxShadow: "var(--shadow-lift)", padding: 4, minWidth: 168 }}>
-          <button style={menuItem} onClick={() => { onEditResult(menu.entry); setMenu(null); }}><Icon name="edit" size={13} /> Edit result</button>
-          <button style={menuItem} onClick={() => { onOpen(); setMenu(null); }}><Icon name="external" size={13} /> Open race</button>
+        <div style={{ position: "fixed", top: menuTop, left: menuLeft, zIndex: 50, width: 224, background: "var(--bg-1)", border: "1px solid var(--border-2)", borderRadius: "var(--r-md)", boxShadow: "var(--shadow-lift)", padding: 4 }}>
+          <button style={menuItem} onMouseEnter={hoverOn} onMouseLeave={hoverOff} onClick={() => { onEditEntry(menu.entry); setMenu(null); }}><Icon name="user" size={13} /> Edit athlete / discipline</button>
+          <button style={menuItem} onMouseEnter={hoverOn} onMouseLeave={hoverOff} onClick={() => { onEditResult(menu.entry); setMenu(null); }}><Icon name="edit" size={13} /> Edit result</button>
+          <div style={{ height: 1, background: "var(--border-1)", margin: "4px 6px" }} />
+          <div className="text-xs mono fw-700 muted" style={{ textTransform: "uppercase", letterSpacing: "0.05em", padding: "4px 10px 2px" }}>Set status</div>
+          {ENTRY_STATUS_KEYS.map((s) => (
+            <button key={s} style={menuItem} onMouseEnter={hoverOn} onMouseLeave={hoverOff} onClick={() => setStatus(menu.entry, s)}>
+              <span style={{ width: 14, display: "inline-flex" }}>{menu.entry.status === s && <Icon name="check" size={13} style={{ color: "var(--accent)" }} />}</span>
+              {t(`entry.${s}`)}
+            </button>
+          ))}
+          <div style={{ height: 1, background: "var(--border-1)", margin: "4px 6px" }} />
+          <button style={menuItem} onMouseEnter={hoverOn} onMouseLeave={hoverOff} onClick={() => { navigate("athlete-detail", menu.entry.athleteId); setMenu(null); }}><Icon name="external" size={13} /> Show athlete info</button>
         </div>
       )}
     </div>
+  );
+}
+
+// Edit an existing entry's athlete and/or discipline (photo_23 "Modifica
+// informazioni atleta per la competizione"; discipline options come from the race).
+function EntryEditModal({ entry, race, athletes, onClose }: { entry: RaceEntry; race: Competition | null; athletes: Athlete[]; onClose: () => void }) {
+  const { updateEntry, t } = useLane();
+  const [athleteId, setAthleteId] = useState(entry.athleteId);
+  const [discipline, setDiscipline] = useState(entry.discipline);
+  const disciplineOptions = useMemo(() => {
+    const fromRace = race?.disciplines?.length ? race.disciplines.map((d) => d.discipline) : race?.events || [];
+    return Array.from(new Set([...(fromRace as string[]), ...ALL_DISCIPLINES, entry.discipline].filter(Boolean)));
+  }, [race, entry.discipline]);
+  const save = () => {
+    const a = athletes.find((x) => x.id === athleteId);
+    updateEntry(entry.id, { athleteId, discipline, gender: a ? (a.gender === "F" ? "W" : "M") : entry.gender });
+    onClose();
+  };
+  return (
+    <Modal open onClose={onClose} title={`${t("race.participants")} — ${race?.name || ""}`} footer={<><button className="btn btn-secondary" onClick={onClose}>{t("common.cancel")}</button><button className="btn btn-primary" onClick={save}>{t("common.save")}</button></>}>
+      <div className="col" style={{ gap: 14 }}>
+        <div className="field">
+          <label className="field-label">{t("race.contactName")}</label>
+          <select className="input" value={athleteId} onChange={(e) => setAthleteId(e.target.value)}>
+            {athletes.map((a) => <option key={a.id} value={a.id}>{a.last}, {a.first} ({a.specialty})</option>)}
+          </select>
+        </div>
+        <div className="field">
+          <label className="field-label">{t("athlete.discipline")}</label>
+          <select className="input" value={discipline} onChange={(e) => setDiscipline(e.target.value)}>
+            {disciplineOptions.map((d) => <option key={d} value={d}>{d}</option>)}
+          </select>
+        </div>
+      </div>
+    </Modal>
   );
 }
 
@@ -493,18 +597,24 @@ function CompetitionCard({ c, athletes, onOpen }: { c: Competition; athletes: At
   );
 }
 
-function CompetitionFormModal({ onClose, onSave, organizers, athletes }: { onClose: () => void; onSave: (d: any) => void; organizers: Organizer[]; athletes: Athlete[] }) {
-  const [form, setForm] = useState<any>({
-    name: "", short: "", location: "", country: "",
-    date: "", endDate: "", type: "Diamond League", tier: "tier-1",
-    events: [] as string[], status: "upcoming", entries: 0,
-    category: "meeting" as RaceCategory, level: "International", organizerId: "",
-    contactSurname: "", contactName: "", contactPhone: "", contactEmail: "",
-    participants: [] as string[],
-  });
-  const { t, createEntry } = useLane();
+export function CompetitionFormModal({ competition, onClose, onSave, organizers, athletes }: { competition?: Competition; onClose: () => void; onSave?: (d: any) => void; organizers: Organizer[]; athletes: Athlete[] }) {
+  const isEdit = !!competition;
+  const [form, setForm] = useState<any>(
+    competition
+      ? { ...competition, events: competition.events || [], participants: [] }
+      : {
+          name: "", short: "", location: "", country: "",
+          date: "", endDate: "", type: "Diamond League", tier: "tier-1",
+          events: [] as string[], status: "upcoming", entries: 0,
+          category: "meeting" as RaceCategory, level: "International", organizerId: "",
+          contactSurname: "", contactName: "", contactPhone: "", contactEmail: "",
+          participants: [] as string[],
+        }
+  );
+  const { t, createEntry, updateCompetition } = useLane();
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [showOrgPicker, setShowOrgPicker] = useState(false);
+  const [foglioAsk, setFoglioAsk] = useState(false);
   const [discFilter, setDiscFilter] = useState<string>("all"); // participants panel filter
   const update = (k: string, v: any) => setForm((f: any) => ({ ...f, [k]: v }));
 
@@ -546,8 +656,24 @@ function CompetitionFormModal({ onClose, onSave, organizers, athletes }: { onClo
     if (!form.date) e.date = "Required";
     if (!form.location) e.location = "Required";
     setErrors(e);
-    if (Object.keys(e).length === 0) {
-      const catLabel = RACE_CATEGORIES.find((c) => c.v === form.category)?.l || "Race";
+    if (Object.keys(e).length > 0) return;
+
+    const catLabel = RACE_CATEGORIES.find((c) => c.v === form.category)?.l || "Race";
+    if (isEdit) {
+      // Edit an existing race — update its core fields (entries/statuses are
+      // managed from the race page's Entries tab).
+      const rest = { ...form };
+      delete rest.participants;
+      updateCompetition(competition!.id, {
+        ...rest,
+        endDate: form.endDate || form.date,
+        type: form.level || catLabel,
+      });
+      onClose();
+      return;
+    }
+
+    {
       const id = "c" + Math.random().toString(36).slice(2, 6);
       const payload: any = {
         ...form,
@@ -558,7 +684,7 @@ function CompetitionFormModal({ onClose, onSave, organizers, athletes }: { onClo
         results: 0,
       };
       delete payload.participants; // participants become race entries, not a competition field
-      onSave(payload);
+      onSave?.(payload);
       // Enter each selected participant into a discipline they run.
       for (const aid of form.participants as string[]) {
         const a = athletes.find((x) => x.id === aid);
@@ -569,13 +695,36 @@ function CompetitionFormModal({ onClose, onSave, organizers, athletes }: { onClo
     }
   };
 
+  // Foglio gara (photo_11/15): the race sheet — name/place/date, disciplines,
+  // organizer contact, and (optionally) the participating athletes with columns
+  // for appearance fee, prize money and travel details. Generated as Word.
+  const generateFoglio = (withAthletes: boolean) => {
+    setFoglioAsk(false);
+    const esc = (v: unknown) => String(v ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]!));
+    const org = `${form.contactSurname || ""} ${form.contactName || ""}`.trim() || organizers.find((o) => o.id === form.organizerId)?.name || "";
+    const events = (form.events as string[]).join(" · ") || "—";
+    const header = `<table><tr><th style="width:60%">${esc(form.name)}</th><th>${esc([form.location, form.country].filter(Boolean).join(" · "))}</th><th style="width:70pt">${esc(form.level || "")}</th></tr></table>`;
+    const eventsBlock = `<h2>Events</h2><p>${esc(events)}</p>`;
+    const orgBlock = `<h2>Organizer</h2><table class="dl">
+      <tr><td class="k">Name</td><td>${esc(org)}</td><td class="k">Date</td><td>${esc(form.date)}${form.endDate && form.endDate !== form.date ? " → " + esc(form.endDate) : ""}</td></tr>
+      <tr><td class="k">Phone</td><td>${esc(form.contactPhone)}</td><td class="k">E-mail</td><td>${esc(form.contactEmail)}</td></tr>
+      <tr><td class="k">Note</td><td colspan="3">${esc(form.notes || "")}</td></tr></table>`;
+    let athletesBlock = "";
+    if (withAthletes) {
+      const rows = (form.participants as string[]).map((id) => athletes.find((a) => a.id === id)).filter(Boolean)
+        .map((a: any) => `<tr><td>${esc(`${a.last} ${a.first}`)} (${a.gender === "F" ? "W" : "M"})</td><td></td><td></td><td></td></tr>`).join("");
+      athletesBlock = `<h2>Athletes</h2><table><tr><th>Athlete</th><th>App. fee</th><th>Prize money</th><th>Travel details</th></tr>${rows || '<tr><td colspan="4">—</td></tr>'}</table>`;
+    }
+    downloadWordDoc(`foglio-${(form.name || "gara").replace(/\s+/g, "-").toLowerCase()}`, `${header}${eventsBlock}${orgBlock}${athletesBlock}`, form.name || "Foglio gara");
+  };
+
   return (
     <Modal
       open={true}
       onClose={onClose}
       size="lg"
-      title={t("races.new")}
-      footer={<><button className="btn btn-secondary" onClick={onClose}>{t("common.cancel")}</button><button className="btn btn-primary" onClick={submit}>{t("races.new")}</button></>}
+      title={isEdit ? t("races.edit") : t("races.new")}
+      footer={<><button className="btn btn-secondary" onClick={() => setFoglioAsk(true)} style={{ marginRight: "auto" }}><Icon name="fileText" size={13} /> {t("race.sheet")}</button><button className="btn btn-secondary" onClick={onClose}>{t("common.cancel")}</button><button className="btn btn-primary" onClick={submit}>{isEdit ? t("races.save") : t("races.new")}</button></>}
     >
       <div className="col" style={{ gap: 14 }}>
         <div className="field">
@@ -646,8 +795,8 @@ function CompetitionFormModal({ onClose, onSave, organizers, athletes }: { onClo
             Tick disciplines the race offers on the left; click one to filter the
             eligible athletes on the right by who runs it. */}
         <div className="field">
-          <label className="field-label">{t("race.disciplines")} &amp; {t("race.participants")}</label>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          <label className="field-label">{t("race.disciplines")}{!isEdit ? ` & ${t("race.participants")}` : ""}</label>
+          <div style={{ display: "grid", gridTemplateColumns: isEdit ? "1fr" : "1fr 1fr", gap: 10 }}>
             {/* LEFT — disciplines */}
             <div className="card" style={{ overflow: "hidden" }}>
               <div className="card-header" style={{ padding: "8px 12px" }}>
@@ -674,7 +823,8 @@ function CompetitionFormModal({ onClose, onSave, organizers, athletes }: { onClo
               </div>
             </div>
 
-            {/* RIGHT — participants */}
+            {/* RIGHT — participants (only when creating; entries are edited on the race page) */}
+            {!isEdit && (
             <div className="card" style={{ overflow: "hidden" }}>
               <div className="card-header" style={{ padding: "8px 12px" }}>
                 <div className="card-title text-sm">{t("race.participants")}{discFilter !== "all" ? ` · ${discFilter}` : ""}</div>
@@ -697,8 +847,9 @@ function CompetitionFormModal({ onClose, onSave, organizers, athletes }: { onClo
                 )}
               </div>
             </div>
+            )}
           </div>
-          {form.participants.length > 0 && <span className="text-xs muted">{form.participants.length} {t("race.participants").toLowerCase()}</span>}
+          {!isEdit && form.participants.length > 0 && <span className="text-xs muted">{form.participants.length} {t("race.participants").toLowerCase()}</span>}
         </div>
       </div>
 
@@ -706,6 +857,19 @@ function CompetitionFormModal({ onClose, onSave, organizers, athletes }: { onClo
         <OrganizerPicker
           onClose={() => setShowOrgPicker(false)}
           onChoose={(id) => { pickOrganizer(id); setShowOrgPicker(false); }}
+        />
+      )}
+
+      {foglioAsk && (
+        <ConfirmModal
+          title={t("race.sheet")}
+          message={t("race.foglioConfirm")}
+          onCancel={() => setFoglioAsk(false)}
+          choices={[
+            { label: t("common.cancel"), variant: "ghost", onClick: () => setFoglioAsk(false) },
+            { label: t("race.foglioNoAthletes"), variant: "secondary", onClick: () => generateFoglio(false) },
+            { label: t("race.foglioWithAthletes"), variant: "primary", onClick: () => generateFoglio(true) },
+          ]}
         />
       )}
     </Modal>

@@ -191,7 +191,7 @@ export function AthletesScreen() {
                       <td onClick={(e) => { e.stopPropagation(); toggleSel(a.id); }}>
                         <input type="checkbox" checked={selected.has(a.id)} onChange={() => {}} />
                       </td>
-                      <td className="fw-600" style={{ color: nameColor(a.gender) }}>{a.last}, {a.first}{contractSuffix(a.contract)}</td>
+                      <td className="fw-600" style={{ color: nameColor(a.gender) }}>{a.first} {a.last}{contractSuffix(a.contract)}</td>
                       <td className="text-sm">{a.nationality}</td>
                       <td className="text-sm mono" style={{ whiteSpace: "nowrap" }}>{fmtDob(a.dob)}</td>
                     </tr>
@@ -308,7 +308,7 @@ function AthletePreview({
     <div className="card" style={{ flex: 1, minWidth: 0, overflow: "hidden" }}>
       <div className="card-header">
         <div className="row" style={{ gap: 10, alignItems: "baseline" }}>
-          <div className="card-title" style={{ color: nameColor(athlete.gender) }}>{athlete.last}, {athlete.first}{contractSuffix(athlete.contract)}</div>
+          <div className="card-title" style={{ color: nameColor(athlete.gender) }}>{athlete.first} {athlete.last}{contractSuffix(athlete.contract)}</div>
           <span className="text-sm muted">{athlete.nationality} · {athlete.specialty}</span>
         </div>
         <button className="btn btn-secondary btn-sm" onClick={onOpen}><Icon name="edit" size={13} /> {t("athlete.openProfile")}</button>

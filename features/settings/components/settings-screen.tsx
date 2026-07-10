@@ -2,15 +2,16 @@
 
 // Settings + RBAC: General, Members, Roles & permissions matrix, Security, Audit log.
 
-import React, { useState } from "react";
-import type { ReactNode } from "react";
 import { Icon } from "@/components/icon";
-import { Avatar, Badge, Modal } from "@/components/primitives";
-import { FilterDropdown } from "@/components/shared";
-import { ROLES, PERMISSIONS, DEFAULT_PERMISSIONS, INTEGRATIONS } from "@/lib/reference";
 import { useLane } from "@/components/lane-provider";
-import { downloadCsv } from "@/utils";
+import { Avatar, Badge, Modal, useToast } from "@/components/primitives";
+import { FilterDropdown } from "@/components/shared";
+import { DEFAULT_PERMISSIONS, PERMISSIONS, ROLES } from "@/lib/reference";
 import type { TeamUser } from "@/lib/types";
+import type { ReactNode } from "react";
+import React, { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
 
 export function SettingsScreen({ initialTab }: { initialTab?: string }) {
   const [tab, setTab] = useState(initialTab || "general");
@@ -25,15 +26,13 @@ export function SettingsScreen({ initialTab }: { initialTab?: string }) {
       <div style={{ display: "grid", gridTemplateColumns: "220px 1fr", gap: 12 }}>
         <div className="card" style={{ padding: 8, height: "fit-content", display: "flex", flexDirection: "column", gap: 1 }}>
           {[
+            { id: "profile", label: "Your profile", icon: "user" },
             { id: "general", label: "General", icon: "settings" },
             { id: "members", label: "Members", icon: "users" },
             { id: "rbac", label: "Roles & access", icon: "shield" },
             { id: "security", label: "Security", icon: "lock" },
             { id: "sessions", label: "Sessions & devices", icon: "desktop" },
             { id: "notifications", label: "Notifications", icon: "bell" },
-            { id: "integrations", label: "Integrations", icon: "link" },
-            { id: "audit", label: "Audit log", icon: "history" },
-            { id: "billing", label: "Plan", icon: "star" },
           ].map((it) => (
             <button key={it.id} onClick={() => setTab(it.id)} className="nav-item" aria-current={tab === it.id ? "page" : undefined}>
               <span className="nav-item-icon"><Icon name={it.icon} size={15} /></span>
@@ -42,15 +41,13 @@ export function SettingsScreen({ initialTab }: { initialTab?: string }) {
           ))}
         </div>
         <div>
+          {tab === "profile" && <ProfileSettings />}
           {tab === "general" && <GeneralSettings />}
           {tab === "members" && <MembersSettings />}
           {tab === "rbac" && <RBACSettings />}
           {tab === "security" && <SecuritySettings />}
           {tab === "sessions" && <SessionsSettings />}
           {tab === "notifications" && <NotifSettings />}
-          {tab === "integrations" && <IntegrationsSettings />}
-          {tab === "audit" && <AuditLog />}
-          {tab === "billing" && <BillingSettings />}
         </div>
       </div>
     </div>
@@ -65,6 +62,87 @@ function SettingCard({ title, desc, children }: { title: string; desc?: string; 
         {desc && <div className="text-sm muted" style={{ marginTop: 2 }}>{desc}</div>}
       </div>
       <div style={{ padding: 18 }}>{children}</div>
+    </div>
+  );
+}
+
+// The signed-in user's own profile (reached from the avatar in the topbar).
+// Name + email come from the Supabase auth user; name edits save to user metadata.
+function ProfileSettings() {
+  const push = useToast();
+  const router = useRouter();
+  const supabase = createClient();
+  const [form, setForm] = useState({ firstName: "", lastName: "", email: "", phone: "", title: "", color: "#5b6ef5", bio: "" });
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      const { data } = await supabase.auth.getUser();
+      const u = data.user;
+      if (!active || !u) return;
+      const m = (u.user_metadata || {}) as Record<string, string>;
+      setForm((f) => ({
+        ...f,
+        email: u.email || "",
+        firstName: m.first_name || "",
+        lastName: m.last_name || "",
+        phone: m.phone || "",
+        title: m.title || "",
+        color: m.color || f.color,
+        bio: m.bio || "",
+      }));
+    })();
+    return () => { active = false; };
+  }, [supabase]);
+
+  const set = (k: keyof typeof form, v: string) => setForm((f) => ({ ...f, [k]: v }));
+  const COLORS = ["#5b6ef5", "#f55b6e", "#f5b14c", "#22d3a0", "#b96eff", "#4cc9f5"];
+
+  const save = async () => {
+    setSaving(true);
+    const { error } = await supabase.auth.updateUser({
+      data: { first_name: form.firstName, last_name: form.lastName, phone: form.phone, title: form.title, color: form.color, bio: form.bio },
+    });
+    setSaving(false);
+    push({ title: error ? "Could not save" : "Profile saved", variant: error ? "danger" : "success" });
+  };
+
+  const signOut = async () => {
+    await supabase.auth.signOut();
+    router.push("/signin");
+    router.refresh();
+  };
+
+  return (
+    <div className="col" style={{ gap: 12 }}>
+      <SettingCard title="Your profile" desc="Your name and email for this account.">
+        <div className="row" style={{ gap: 16, alignItems: "flex-start" }}>
+          <div className="col" style={{ gap: 8, alignItems: "center" }}>
+            <Avatar name={`${form.firstName} ${form.lastName}`.trim() || form.email} color={form.color} size="xl" />
+            <div style={{ display: "flex", gap: 4 }}>
+              {COLORS.map((c) => (
+                <button key={c} onClick={() => set("color", c)} style={{ width: 18, height: 18, borderRadius: 999, background: c, border: form.color === c ? "2px solid var(--fg-1)" : "2px solid transparent" }} />
+              ))}
+            </div>
+          </div>
+          <div style={{ flex: 1, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            <div className="field"><label className="field-label">First name</label><input className="input" value={form.firstName} onChange={(e) => set("firstName", e.target.value)} /></div>
+            <div className="field"><label className="field-label">Last name</label><input className="input" value={form.lastName} onChange={(e) => set("lastName", e.target.value)} /></div>
+            <div className="field"><label className="field-label">Email</label><input className="input" type="email" value={form.email} disabled title="Email is managed by your login" /></div>
+            <div className="field"><label className="field-label">Phone</label><input className="input" value={form.phone} onChange={(e) => set("phone", e.target.value)} /></div>
+            <div className="field"><label className="field-label">Title / role</label><input className="input" value={form.title} onChange={(e) => set("title", e.target.value)} /></div>
+          </div>
+        </div>
+        <div className="field" style={{ marginTop: 12 }}>
+          <label className="field-label">Bio</label>
+          <textarea className="input" value={form.bio} onChange={(e) => set("bio", e.target.value)} />
+        </div>
+      </SettingCard>
+      <div className="row" style={{ justifyContent: "space-between", gap: 8 }}>
+        <button className="btn btn-ghost" style={{ color: "var(--danger)" }} onClick={signOut}><Icon name="logout" size={14} /> Sign out</button>
+        <button className="btn btn-primary" onClick={save} disabled={saving}>{saving ? "Saving…" : "Save changes"}</button>
+      </div>
     </div>
   );
 }
@@ -439,107 +517,5 @@ function NotifSettings() {
         </tbody>
       </table>
     </SettingCard>
-  );
-}
-
-function IntegrationsSettings() {
-  return (
-    <div className="col" style={{ gap: 12 }}>
-      <SettingCard title="Connected services">
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-          {INTEGRATIONS.map((it, i) => (
-            <div key={i} className="card card-pad row" style={{ padding: 14 }}>
-              <div style={{ width: 40, height: 40, borderRadius: 9, background: it.color + "22", color: it.color, display: "grid", placeItems: "center", fontWeight: 800, fontFamily: "var(--font-display)" }}>{it.name[0]}</div>
-              <div style={{ flex: 1 }}>
-                <div className="fw-700">{it.name}</div>
-                <div className="text-xs muted">{it.desc}</div>
-              </div>
-              {it.connected ? <Badge variant="success" dot>Connected</Badge> : <button className="btn btn-secondary btn-sm">Connect</button>}
-            </div>
-          ))}
-        </div>
-      </SettingCard>
-    </div>
-  );
-}
-
-function AuditLog() {
-  const { audit } = useLane();
-  const exportCsv = () =>
-    downloadCsv(
-      "lane-audit-log",
-      audit.map((r) => ({ timestamp: r.ts, actor: r.who, action: r.action, target: r.target, ip: r.ip })),
-    );
-  return (
-    <SettingCard title="Audit log" desc="Tamper-evident record of every action across Lane Athletics.">
-      <div className="row" style={{ marginBottom: 12, gap: 8 }}>
-        <div className="input-group" style={{ flex: 1, maxWidth: 280 }}>
-          <Icon name="search" size={14} />
-          <input className="input" placeholder="Filter by user, action, target..." />
-        </div>
-        <FilterDropdown label="Action" value="all" options={[{ v: "all", l: "All actions" }, { v: "create", l: "Create" }, { v: "update", l: "Update" }, { v: "delete", l: "Delete" }]} onChange={() => {}} />
-        <FilterDropdown label="Range" value="7d" options={[{ v: "1d", l: "Last day" }, { v: "7d", l: "Last 7 days" }, { v: "30d", l: "Last 30 days" }]} onChange={() => {}} />
-        <div className="spacer" />
-        <button className="btn btn-secondary btn-sm" onClick={exportCsv}><Icon name="download" size={13} /> Export CSV</button>
-      </div>
-      <table className="table" style={{ border: "1px solid var(--border-1)", borderRadius: "var(--r-md)", overflow: "hidden" }}>
-        <thead>
-          <tr><th>Timestamp</th><th>Actor</th><th>Action</th><th>Target</th><th>Origin IP</th></tr>
-        </thead>
-        <tbody>
-          {audit.map((r) => (
-            <tr key={r.id} style={{ cursor: "default" }}>
-              <td className="text-sm muted mono" style={{ whiteSpace: "nowrap" }}>{r.ts}</td>
-              <td>
-                <div className="row" style={{ gap: 8 }}>
-                  <Avatar name={r.who} color={r.whoColor} size="xs" />
-                  <span className="fw-600 text-sm">{r.who}</span>
-                </div>
-              </td>
-              <td><Badge variant={r.variant}>{r.action}</Badge></td>
-              <td className="text-sm">{r.target}</td>
-              <td className="text-sm muted mono">{r.ip}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </SettingCard>
-  );
-}
-
-function BillingSettings() {
-  return (
-    <div className="col" style={{ gap: 12 }}>
-      <SettingCard title="Current plan">
-        <div className="row">
-          <div style={{ flex: 1 }}>
-            <Badge variant="accent">Pro · Annual</Badge>
-            <div className="display fw-800" style={{ fontSize: 30, letterSpacing: "-0.03em", marginTop: 6 }}>$249<span className="text-md muted" style={{ fontWeight: 500 }}> /month</span></div>
-            <div className="text-sm muted">Billed annually · renews January 2027 · 27 seats included</div>
-          </div>
-          <button className="btn btn-secondary">Change plan</button>
-          <button className="btn btn-primary">Upgrade</button>
-        </div>
-      </SettingCard>
-      <SettingCard title="Usage">
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
-          <UsageStat label="Athletes" used={12} max={50} />
-          <UsageStat label="Members" used={6} max={27} />
-          <UsageStat label="Storage" used={47} max={5120} unit="MB" />
-        </div>
-      </SettingCard>
-    </div>
-  );
-}
-
-function UsageStat({ label, used, max, unit }: { label: string; used: number; max: number; unit?: string }) {
-  return (
-    <div>
-      <div className="text-sm muted fw-600">{label}</div>
-      <div className="display fw-700" style={{ fontSize: 22, letterSpacing: "-0.02em", marginTop: 2 }}>
-        {used} <span className="text-sm muted" style={{ fontWeight: 500 }}>/ {max}{unit ? ` ${unit}` : ""}</span>
-      </div>
-      <div className="progress" style={{ marginTop: 8 }}><div style={{ width: (used / max) * 100 + "%" }} /></div>
-    </div>
   );
 }
