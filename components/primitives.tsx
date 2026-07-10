@@ -354,7 +354,7 @@ export function Tabs<T extends string>({
   return (
     <div className="tabs">
       {tabs.map((t) => (
-        <button key={t.value} aria-selected={value === t.value} onClick={() => onChange(t.value)}>
+        <button key={t.value} role="tab" aria-selected={value === t.value} onClick={() => onChange(t.value)}>
           {t.label}
           {t.count != null && (
             <span
