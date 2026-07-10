@@ -11,8 +11,6 @@ npm run dev      # http://localhost:3000
 npm run build && npm run start
 ```
 
-## What's inside
-
 ### Routes (App Router)
 | Path | Screen |
 | --- | --- |
