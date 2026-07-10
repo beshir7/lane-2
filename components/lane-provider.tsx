@@ -43,8 +43,28 @@ const LANG_KEY = "lane-lang";
 const newId = (p: string) => p + Math.random().toString(36).slice(2, 8);
 const today = () => new Date().toISOString().slice(0, 10);
 
+// The signed-in account, shaped for display in the topbar / sidebar. Built from
+// the Supabase user + the profile fields stored in user_metadata at signup and
+// in Settings → Profile.
+export interface CurrentUser {
+  name: string;
+  email: string;
+  color: string;
+  title: string;
+}
+
+function toCurrentUser(user: { email?: string | null; user_metadata?: Record<string, any> | null }): CurrentUser {
+  const m = (user.user_metadata || {}) as Record<string, string>;
+  const name = `${m.first_name || ""} ${m.last_name || ""}`.trim() || user.email || "Account";
+  return { name, email: user.email || "", color: m.color || "#5b6ef5", title: m.title || "Member" };
+}
+
 interface LaneContextValue {
   loading: boolean;
+
+  currentUser: CurrentUser | null;
+  // Personal model: the signed-in account owner is always the admin.
+  isAdmin: boolean;
 
   athletes: Athlete[];
   competitions: Competition[];
@@ -150,6 +170,7 @@ export function LaneProvider({ children }: { children: ReactNode }) {
   );
 
   const [loading, setLoading] = useState(true);
+  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
   const [athletes, setAthletes] = useState<Athlete[]>([]);
   const [competitions, setCompetitions] = useState<Competition[]>([]);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
@@ -217,6 +238,7 @@ export function LaneProvider({ children }: { children: ReactNode }) {
       if (!active) return;
       if (!user) { setLoading(false); return; } // middleware will redirect to /signin
       userIdRef.current = user.id;
+      setCurrentUser(toCurrentUser(user));
       try {
         const d = await fetchLaneData(supabase);
         if (!active) return;
@@ -235,6 +257,15 @@ export function LaneProvider({ children }: { children: ReactNode }) {
       }
     })();
     return () => { active = false; };
+  }, [supabase]);
+
+  // Keep the displayed account in sync with auth changes: a profile save
+  // (USER_UPDATED), a fresh sign-in, or a sign-out all refresh it live.
+  useEffect(() => {
+    const { data: sub } = supabase.auth.onAuthStateChange((_event: string, session: { user: { email?: string | null; user_metadata?: Record<string, any> | null } } | null) => {
+      setCurrentUser(session?.user ? toCurrentUser(session.user) : null);
+    });
+    return () => sub.subscription.unsubscribe();
   }, [supabase]);
 
   // ----- Navigation -----
@@ -471,7 +502,7 @@ export function LaneProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<LaneContextValue>(
     () => ({
-      loading, athletes, competitions, events, results, notifications, documents, users, posts, activity, audit, sessions,
+      loading, currentUser, isAdmin: !!currentUser, athletes, competitions, events, results, notifications, documents, users, posts, activity, audit, sessions,
       passports, visas, organizers, entries, unreadCount,
       createAthlete, updateAthlete, deleteAthlete,
       createCompetition, updateCompetition, deleteCompetition, loadResults, addResult,
@@ -493,7 +524,7 @@ export function LaneProvider({ children }: { children: ReactNode }) {
       navigate,
     }),
     [
-      loading, athletes, competitions, events, results, notifications, documents, users, posts, activity, audit, sessions,
+      loading, currentUser, athletes, competitions, events, results, notifications, documents, users, posts, activity, audit, sessions,
       passports, visas, organizers, entries, unreadCount,
       createAthlete, updateAthlete, deleteAthlete, createCompetition, updateCompetition, deleteCompetition, loadResults, addResult,
       createEvent, updateEvent, deleteEvent, addDocuments, deleteDocument, inviteUser, removeUser, savePost, revokeSession,

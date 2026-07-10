@@ -1,39 +1,47 @@
 "use client";
 
-// Settings + RBAC: General, Members, Roles & permissions matrix, Security, Audit log.
+// Settings: Profile, General, Members, Roles & permissions, Security, Sessions,
+// Notifications. Personal (single-tenant) model — every tab is backed by the
+// signed-in user's own rows (workspace_settings / members / roles) via RLS, or
+// by Supabase auth (profile, password, MFA, sessions). No hardcoded data.
 
 import { Icon } from "@/components/icon";
 import { useLane } from "@/components/lane-provider";
 import { Avatar, Badge, Modal, useToast } from "@/components/primitives";
 import { FilterDropdown } from "@/components/shared";
-import { DEFAULT_PERMISSIONS, PERMISSIONS, ROLES } from "@/lib/reference";
-import type { TeamUser } from "@/lib/types";
+import { PERMISSIONS, SETTINGS_COUNTRIES, SETTINGS_TIMEZONES, ORG_DISCIPLINES } from "@/lib/reference";
 import type { ReactNode } from "react";
 import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { useSettingsData, NOTIF_EVENTS, NOTIF_CHANNELS, type RoleDef } from "../use-settings-data";
 
 export function SettingsScreen({ initialTab }: { initialTab?: string }) {
   const [tab, setTab] = useState(initialTab || "general");
+  const { isAdmin } = useLane();
+  const data = useSettingsData();
+
+  const tabs = [
+    { id: "profile", label: "Your profile", icon: "user" },
+    { id: "general", label: "General", icon: "settings" },
+    { id: "members", label: "Members", icon: "users" },
+    { id: "rbac", label: "Roles & access", icon: "shield" },
+    { id: "security", label: "Security", icon: "lock" },
+    { id: "sessions", label: "Sessions & devices", icon: "desktop", adminOnly: true },
+    { id: "notifications", label: "Notifications", icon: "bell" },
+  ].filter((t) => !t.adminOnly || isAdmin);
+
   return (
     <div className="page">
       <div className="page-header">
         <div>
           <h1 className="page-title">Settings</h1>
-          <p className="page-subtitle">Organization-wide preferences, security and team access</p>
+          <p className="page-subtitle">Your account, workspace preferences, security and team access</p>
         </div>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "220px 1fr", gap: 12 }}>
         <div className="card" style={{ padding: 8, height: "fit-content", display: "flex", flexDirection: "column", gap: 1 }}>
-          {[
-            { id: "profile", label: "Your profile", icon: "user" },
-            { id: "general", label: "General", icon: "settings" },
-            { id: "members", label: "Members", icon: "users" },
-            { id: "rbac", label: "Roles & access", icon: "shield" },
-            { id: "security", label: "Security", icon: "lock" },
-            { id: "sessions", label: "Sessions & devices", icon: "desktop" },
-            { id: "notifications", label: "Notifications", icon: "bell" },
-          ].map((it) => (
+          {tabs.map((it) => (
             <button key={it.id} onClick={() => setTab(it.id)} className="nav-item" aria-current={tab === it.id ? "page" : undefined}>
               <span className="nav-item-icon"><Icon name={it.icon} size={15} /></span>
               <span className="nav-item-label">{it.label}</span>
@@ -42,17 +50,19 @@ export function SettingsScreen({ initialTab }: { initialTab?: string }) {
         </div>
         <div>
           {tab === "profile" && <ProfileSettings />}
-          {tab === "general" && <GeneralSettings />}
-          {tab === "members" && <MembersSettings />}
-          {tab === "rbac" && <RBACSettings />}
+          {tab === "general" && <GeneralSettings data={data} />}
+          {tab === "members" && <MembersSettings data={data} />}
+          {tab === "rbac" && <RBACSettings data={data} />}
           {tab === "security" && <SecuritySettings />}
-          {tab === "sessions" && <SessionsSettings />}
-          {tab === "notifications" && <NotifSettings />}
+          {tab === "sessions" && isAdmin && <SessionsSettings />}
+          {tab === "notifications" && <NotifSettings data={data} />}
         </div>
       </div>
     </div>
   );
 }
+
+type SettingsData = ReturnType<typeof useSettingsData>;
 
 function SettingCard({ title, desc, children }: { title: string; desc?: string; children: ReactNode }) {
   return (
@@ -67,11 +77,10 @@ function SettingCard({ title, desc, children }: { title: string; desc?: string; 
 }
 
 // The signed-in user's own profile (reached from the avatar in the topbar).
-// Name + email come from the Supabase auth user; name edits save to user metadata.
 function ProfileSettings() {
   const push = useToast();
   const router = useRouter();
-  const supabase = createClient();
+  const [supabase] = useState(() => createClient());
   const [form, setForm] = useState({ firstName: "", lastName: "", email: "", phone: "", title: "", color: "#5b6ef5", bio: "" });
   const [saving, setSaving] = useState(false);
 
@@ -147,7 +156,20 @@ function ProfileSettings() {
   );
 }
 
-function GeneralSettings() {
+function GeneralSettings({ data }: { data: SettingsData }) {
+  const push = useToast();
+  const [draft, setDraft] = useState(data.settings);
+  const [saving, setSaving] = useState(false);
+  useEffect(() => { setDraft(data.settings); }, [data.settings]);
+  const set = (k: keyof typeof draft, v: string) => setDraft((d) => ({ ...d, [k]: v }));
+
+  const save = async () => {
+    setSaving(true);
+    const { error } = (await data.saveSettings(draft)) || {};
+    setSaving(false);
+    push({ title: error ? "Could not save" : "Settings saved", variant: error ? "danger" : "success" });
+  };
+
   return (
     <div className="col" style={{ gap: 12 }}>
       <SettingCard title="Organization profile" desc="Your team identity across Lane 2.">
@@ -156,53 +178,85 @@ function GeneralSettings() {
             <Icon name="image" size={20} />
           </div>
           <div style={{ flex: 1, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-            <div className="field"><label className="field-label">Organization name</label><input className="input" defaultValue="Lane Athletics" /></div>
-            <div className="field"><label className="field-label">Slug</label><input className="input mono" defaultValue="lane-athletics" /></div>
-            <div className="field"><label className="field-label">Discipline</label><select className="input"><option>Track &amp; Field</option></select></div>
-            <div className="field"><label className="field-label">Country</label><select className="input"><option>Norway</option><option>USA</option><option>UK</option></select></div>
+            <div className="field"><label className="field-label">Organization name</label><input className="input" value={draft.orgName} onChange={(e) => set("orgName", e.target.value)} /></div>
+            <div className="field"><label className="field-label">Slug</label><input className="input mono" value={draft.slug} onChange={(e) => set("slug", e.target.value)} /></div>
+            <div className="field"><label className="field-label">Discipline</label>
+              <select className="input" value={draft.discipline} onChange={(e) => set("discipline", e.target.value)}>
+                {ORG_DISCIPLINES.map((d) => <option key={d} value={d}>{d}</option>)}
+              </select>
+            </div>
+            <div className="field"><label className="field-label">Country</label>
+              <select className="input" value={draft.country} onChange={(e) => set("country", e.target.value)}>
+                <option value="">Select country…</option>
+                {SETTINGS_COUNTRIES.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
           </div>
         </div>
       </SettingCard>
 
       <SettingCard title="Regional" desc="Defaults applied to dates, times and units across the workspace.">
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
-          <div className="field"><label className="field-label">Time zone</label><select className="input"><option>Europe/Oslo (UTC+2)</option></select></div>
-          <div className="field"><label className="field-label">Date format</label><select className="input"><option>YYYY-MM-DD</option><option>DD/MM/YYYY</option><option>MM/DD/YYYY</option></select></div>
-          <div className="field"><label className="field-label">Distance unit</label><select className="input"><option>Metric (m, km)</option><option>Imperial</option></select></div>
+          <div className="field"><label className="field-label">Time zone</label>
+            <select className="input" value={draft.timezone} onChange={(e) => set("timezone", e.target.value)}>
+              {SETTINGS_TIMEZONES.map((tz) => <option key={tz.value} value={tz.value}>{tz.label}</option>)}
+            </select>
+          </div>
+          <div className="field"><label className="field-label">Date format</label>
+            <select className="input" value={draft.dateFormat} onChange={(e) => set("dateFormat", e.target.value)}>
+              <option value="YYYY-MM-DD">YYYY-MM-DD</option>
+              <option value="DD/MM/YYYY">DD/MM/YYYY</option>
+              <option value="MM/DD/YYYY">MM/DD/YYYY</option>
+            </select>
+          </div>
+          <div className="field"><label className="field-label">Distance unit</label>
+            <select className="input" value={draft.distanceUnit} onChange={(e) => set("distanceUnit", e.target.value)}>
+              <option value="metric">Metric (m, km)</option>
+              <option value="imperial">Imperial</option>
+            </select>
+          </div>
         </div>
       </SettingCard>
 
       <SettingCard title="Default season">
         <div className="row" style={{ gap: 12 }}>
-          <div className="field" style={{ flex: 1 }}><label className="field-label">Season starts</label><input type="date" className="input" defaultValue="2026-01-01" /></div>
-          <div className="field" style={{ flex: 1 }}><label className="field-label">Season ends</label><input type="date" className="input" defaultValue="2026-09-30" /></div>
+          <div className="field" style={{ flex: 1 }}><label className="field-label">Season starts</label><input type="date" className="input" value={draft.seasonStart} onChange={(e) => set("seasonStart", e.target.value)} /></div>
+          <div className="field" style={{ flex: 1 }}><label className="field-label">Season ends</label><input type="date" className="input" value={draft.seasonEnd} onChange={(e) => set("seasonEnd", e.target.value)} /></div>
         </div>
       </SettingCard>
 
       <div className="row" style={{ justifyContent: "flex-end", gap: 8 }}>
-        <button className="btn btn-secondary">Discard</button>
-        <button className="btn btn-primary">Save changes</button>
+        <button className="btn btn-secondary" onClick={() => setDraft(data.settings)}>Discard</button>
+        <button className="btn btn-primary" onClick={save} disabled={saving}>{saving ? "Saving…" : "Save changes"}</button>
       </div>
     </div>
   );
 }
 
-function MembersSettings() {
-  const { users, inviteUser, removeUser } = useLane();
+function MembersSettings({ data }: { data: SettingsData }) {
+  const { currentUser } = useLane();
   const [showInvite, setShowInvite] = useState(false);
-  const handleInvite = (u: Partial<TeamUser>) => {
-    inviteUser(u);
-    setShowInvite(false);
-  };
+  const [query, setQuery] = useState("");
+  const [roleFilter, setRoleFilter] = useState("all");
+
+  const roleName = (id: string) => data.roles.find((r) => r.id === id)?.name || id;
+  const roleColor = (id: string) => data.roles.find((r) => r.id === id)?.color || "var(--fg-3)";
+
+  const filtered = data.members.filter((m) => {
+    if (roleFilter !== "all" && m.roleId !== roleFilter) return false;
+    if (query && !(`${m.name} ${m.email}`.toLowerCase().includes(query.toLowerCase()))) return false;
+    return true;
+  });
+
   return (
     <div className="col" style={{ gap: 12 }}>
-      <SettingCard title="Members" desc={`${users.length} people have access to Lane Athletics workspace.`}>
+      <SettingCard title="Members" desc={`${data.members.length + 1} ${data.members.length === 0 ? "person has" : "people have"} access to this workspace.`}>
         <div className="row" style={{ marginBottom: 12 }}>
           <div className="input-group" style={{ flex: 1, maxWidth: 320 }}>
             <Icon name="search" size={14} />
-            <input className="input" placeholder="Search members..." />
+            <input className="input" placeholder="Search members..." value={query} onChange={(e) => setQuery(e.target.value)} />
           </div>
-          <FilterDropdown label="Role" value="all" options={[{ v: "all", l: "All roles" }, ...ROLES.map((r) => ({ v: r.id, l: r.name }))]} onChange={() => {}} />
+          <FilterDropdown label="Role" value={roleFilter} options={[{ v: "all", l: "All roles" }, ...data.roles.map((r) => ({ v: r.id, l: r.name }))]} onChange={setRoleFilter} />
           <div className="spacer" />
           <button className="btn btn-primary" onClick={() => setShowInvite(true)}><Icon name="plus" size={13} /> Invite member</button>
         </div>
@@ -211,48 +265,59 @@ function MembersSettings() {
             <tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>Last active</th><th></th></tr>
           </thead>
           <tbody>
-            {users.map((u) => {
-              const role = ROLES.find((r) => r.id === u.role);
-              return (
-                <tr key={u.id}>
-                  <td>
-                    <div className="row" style={{ gap: 10 }}>
-                      <Avatar name={u.name} color={u.color} size="sm" dot={u.active ? "online" : "offline"} />
-                      <div className="fw-600">{u.name}</div>
-                    </div>
-                  </td>
-                  <td className="text-sm muted mono">{u.email}</td>
-                  <td><Badge variant={role?.id === "r-admin" ? "accent" : role?.id === "r-coach" ? "success" : ""}>{role?.name}</Badge></td>
-                  <td><Badge variant={u.active ? "success" : ""} dot>{u.active ? "Active" : "Inactive"}</Badge></td>
-                  <td className="text-sm muted">{u.last}</td>
-                  <td><button className="icon-btn" title="Remove member" onClick={() => removeUser(u.id)}><Icon name="trash" size={14} /></button></td>
-                </tr>
-              );
-            })}
+            {/* The account owner (you) — always an active admin, cannot be removed. */}
+            {(roleFilter === "all" || roleFilter === "r-admin") && (
+              <tr>
+                <td>
+                  <div className="row" style={{ gap: 10 }}>
+                    <Avatar name={currentUser?.name || "You"} color={currentUser?.color || "#5b6ef5"} size="sm" dot="online" />
+                    <div className="fw-600">{currentUser?.name || "You"} <span className="text-xs muted">· You</span></div>
+                  </div>
+                </td>
+                <td className="text-sm muted mono">{currentUser?.email || ""}</td>
+                <td><Badge variant="accent">Admin</Badge></td>
+                <td><Badge variant="success" dot>Active</Badge></td>
+                <td className="text-sm muted">Now</td>
+                <td></td>
+              </tr>
+            )}
+            {filtered.map((m) => (
+              <tr key={m.id}>
+                <td>
+                  <div className="row" style={{ gap: 10 }}>
+                    <Avatar name={m.name} color={m.color} size="sm" dot={m.status === "active" ? "online" : "offline"} />
+                    <div className="fw-600">{m.name}</div>
+                  </div>
+                </td>
+                <td className="text-sm muted mono">{m.email}</td>
+                <td><Badge><span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><span style={{ width: 6, height: 6, borderRadius: 999, background: roleColor(m.roleId) }} />{roleName(m.roleId)}</span></Badge></td>
+                <td><Badge variant={m.status === "active" ? "success" : m.status === "invited" ? "warning" : ""} dot>{m.status === "active" ? "Active" : m.status === "invited" ? "Invited" : "Inactive"}</Badge></td>
+                <td className="text-sm muted">{m.lastActive}</td>
+                <td><button className="icon-btn" title="Remove member" onClick={() => data.removeMember(m.id)}><Icon name="trash" size={14} /></button></td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </SettingCard>
-      {showInvite && <InviteModal onClose={() => setShowInvite(false)} onSave={handleInvite} />}
+      {showInvite && <InviteModal roles={data.roles} onClose={() => setShowInvite(false)} onInvite={(email, role) => { data.inviteMember(email, role); setShowInvite(false); }} />}
     </div>
   );
 }
 
-function InviteModal({ onClose, onSave }: { onClose: () => void; onSave: (u: Partial<TeamUser>) => void }) {
+function InviteModal({ roles, onClose, onInvite }: { roles: RoleDef[]; onClose: () => void; onInvite: (email: string, role: string) => void }) {
   const [emails, setEmails] = useState("");
-  const [role, setRole] = useState("r-coach");
+  const [role, setRole] = useState(roles.find((r) => r.id !== "r-admin")?.id || roles[0]?.id || "r-coach");
   return (
     <Modal
       open={true}
       onClose={onClose}
-      title="Invite to Lane Athletics"
+      title="Invite to your workspace"
       footer={
         <>
           <button className="btn btn-secondary" onClick={onClose}>Cancel</button>
           <button
             className="btn btn-primary"
-            onClick={() => {
-              emails.split(",").map((e) => e.trim()).filter(Boolean).forEach((email) => onSave({ name: email.split("@")[0], email, role, active: true }));
-            }}
+            onClick={() => emails.split(",").map((e) => e.trim()).filter(Boolean).forEach((email) => onInvite(email, role))}
           >
             <Icon name="send" size={13} /> Send invitations
           </button>
@@ -268,7 +333,7 @@ function InviteModal({ onClose, onSave }: { onClose: () => void; onSave: (u: Par
         <div className="field">
           <label className="field-label">Role</label>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-            {ROLES.map((r) => (
+            {roles.filter((r) => r.id !== "r-admin").map((r) => (
               <label key={r.id} className="card card-pad" style={{ padding: 12, cursor: "pointer", border: role === r.id ? "1px solid var(--accent)" : "1px solid var(--border-1)", background: role === r.id ? "var(--accent-soft)" : "var(--bg-1)" }}>
                 <input type="radio" checked={role === r.id} onChange={() => setRole(r.id)} style={{ display: "none" }} />
                 <div className="fw-600 row" style={{ gap: 8 }}>
@@ -285,30 +350,32 @@ function InviteModal({ onClose, onSave }: { onClose: () => void; onSave: (u: Par
   );
 }
 
-function RBACSettings() {
-  const [perms, setPerms] = useState<Record<string, Set<string>>>(() => {
-    const cloned: Record<string, Set<string>> = {};
-    Object.entries(DEFAULT_PERMISSIONS).forEach(([role, ids]) => {
-      cloned[role] = new Set(ids);
-    });
-    return cloned;
-  });
-  const [activeRole, setActiveRole] = useState("r-coach");
+function RBACSettings({ data }: { data: SettingsData }) {
+  const { isAdmin } = useLane();
+  const push = useToast();
+  const [activeRole, setActiveRole] = useState<string>("");
+  const [showCreate, setShowCreate] = useState(false);
 
-  const togglePerm = (roleId: string, permId: string) => {
-    setPerms((p) => {
-      const next = { ...p };
-      next[roleId] = new Set(next[roleId]);
-      next[roleId].has(permId) ? next[roleId].delete(permId) : next[roleId].add(permId);
-      return next;
-    });
+  const roles = data.roles;
+  useEffect(() => {
+    if (roles.length && !roles.some((r) => r.id === activeRole)) setActiveRole(roles.find((r) => r.id !== "r-admin")?.id || roles[0].id);
+  }, [roles, activeRole]);
+
+  // Member counts per role (owner counts as admin).
+  const countFor = (roleId: string) => data.members.filter((m) => m.roleId === roleId).length + (roleId === "r-admin" ? 1 : 0);
+  const active = roles.find((r) => r.id === activeRole);
+
+  const removeRole = async () => {
+    if (!active || active.isSystem) return;
+    await data.deleteRole(active.id);
+    push({ title: "Role deleted", variant: "info" });
   };
 
   return (
     <div className="col" style={{ gap: 12 }}>
-      <SettingCard title="Roles" desc="Define roles and their feature-level permissions. Changes apply immediately to all members of the role.">
+      <SettingCard title="Roles" desc="Define roles and their feature-level permissions. Changes save immediately.">
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 16 }}>
-          {ROLES.map((r) => (
+          {roles.map((r) => (
             <button
               key={r.id}
               onClick={() => setActiveRole(r.id)}
@@ -321,34 +388,38 @@ function RBACSettings() {
               </div>
               <div className="text-xs muted" style={{ marginTop: 6, height: 32 }}>{r.description}</div>
               <div className="row" style={{ justifyContent: "space-between", marginTop: 10 }}>
-                <span className="display fw-700" style={{ fontSize: 18, letterSpacing: "-0.02em" }}>{r.users}</span>
-                <span className="text-xs muted">members · {perms[r.id].size} perms</span>
+                <span className="display fw-700" style={{ fontSize: 18, letterSpacing: "-0.02em" }}>{countFor(r.id)}</span>
+                <span className="text-xs muted">members · {r.permissions.length} perms</span>
               </div>
             </button>
           ))}
-          <button className="card card-pad" style={{ padding: 14, textAlign: "left", cursor: "pointer", borderStyle: "dashed", background: "transparent", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6, color: "var(--fg-3)", minHeight: 100 }}>
-            <Icon name="plus" size={20} />
-            <span className="fw-600 text-sm">Create custom role</span>
-          </button>
+          {/* Create custom role — admins only. */}
+          {isAdmin && (
+            <button onClick={() => setShowCreate(true)} className="card card-pad" style={{ padding: 14, textAlign: "left", cursor: "pointer", borderStyle: "dashed", background: "transparent", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6, color: "var(--fg-3)", minHeight: 100 }}>
+              <Icon name="plus" size={20} />
+              <span className="fw-600 text-sm">Create custom role</span>
+            </button>
+          )}
         </div>
 
         <div className="card" style={{ background: "var(--bg-2)" }}>
           <div className="card-header" style={{ background: "transparent" }}>
             <div>
-              <div className="card-title">Permissions · {ROLES.find((r) => r.id === activeRole)?.name}</div>
+              <div className="card-title">Permissions · {active?.name || "—"}</div>
               <div className="text-sm muted">Toggle access for this role. Admin always has all permissions.</div>
             </div>
             <div className="row" style={{ gap: 6 }}>
-              <button className="btn btn-secondary btn-sm"><Icon name="copy" size={13} /> Duplicate</button>
-              <button className="btn btn-ghost btn-sm" style={{ color: "var(--danger)" }}><Icon name="trash" size={13} /> Delete role</button>
+              {active && !active.isSystem && isAdmin && (
+                <button className="btn btn-ghost btn-sm" style={{ color: "var(--danger)" }} onClick={removeRole}><Icon name="trash" size={13} /> Delete role</button>
+              )}
             </div>
           </div>
-          <div style={{ padding: 16 }}>
+          <div style={{ padding: 16, overflowX: "auto" }}>
             <table className="table" style={{ background: "transparent" }}>
               <thead>
                 <tr>
                   <th style={{ width: "40%", background: "transparent" }}>Permission</th>
-                  {ROLES.map((r) => (
+                  {roles.map((r) => (
                     <th key={r.id} style={{ background: "transparent", textAlign: "center" }}>
                       <div className="row" style={{ justifyContent: "center", gap: 6 }}>
                         <span style={{ width: 6, height: 6, borderRadius: 999, background: r.color }} />
@@ -362,17 +433,17 @@ function RBACSettings() {
                 {PERMISSIONS.map((group) => (
                   <React.Fragment key={group.group}>
                     <tr>
-                      <td colSpan={5} style={{ background: "var(--bg-3)", padding: "6px 14px", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--fg-3)" }}>{group.group}</td>
+                      <td colSpan={roles.length + 1} style={{ background: "var(--bg-3)", padding: "6px 14px", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--fg-3)" }}>{group.group}</td>
                     </tr>
                     {group.items.map((p) => (
                       <tr key={p.id} style={{ cursor: "default" }}>
                         <td className="fw-500">{p.label}</td>
-                        {ROLES.map((r) => {
-                          const on = perms[r.id].has(p.id);
-                          const disabled = r.id === "r-admin";
+                        {roles.map((r) => {
+                          const on = r.id === "r-admin" ? true : r.permissions.includes(p.id);
+                          const disabled = r.id === "r-admin" || !isAdmin;
                           return (
                             <td key={r.id} style={{ textAlign: "center" }}>
-                              <button onClick={() => !disabled && togglePerm(r.id, p.id)} disabled={disabled} className="switch" data-on={on ? "true" : "false"} style={{ verticalAlign: "middle" }} />
+                              <button onClick={() => !disabled && data.toggleRolePerm(r.id, p.id)} disabled={disabled} className="switch" data-on={on ? "true" : "false"} style={{ verticalAlign: "middle" }} />
                             </td>
                           );
                         })}
@@ -385,135 +456,261 @@ function RBACSettings() {
           </div>
         </div>
       </SettingCard>
-
-      <SettingCard title="Access denied preview" desc="What users see when they hit a restricted area.">
-        <div className="card card-pad" style={{ padding: 30, background: "var(--bg-2)", textAlign: "center" }}>
-          <div style={{ width: 56, height: 56, borderRadius: 16, background: "var(--danger-soft)", color: "var(--danger)", display: "grid", placeItems: "center", margin: "0 auto" }}>
-            <Icon name="lock" size={24} />
-          </div>
-          <div className="display fw-700" style={{ fontSize: 18, marginTop: 14, letterSpacing: "-0.02em" }}>You don&apos;t have access</div>
-          <div className="text-sm muted" style={{ marginTop: 4, maxWidth: 320, margin: "4px auto 14px" }}>
-            This area requires the <b style={{ color: "var(--fg-1)" }}>admin.users</b> permission. Ask your admin to grant access.
-          </div>
-          <button className="btn btn-secondary btn-sm">Request access</button>
-        </div>
-      </SettingCard>
+      {showCreate && <CreateRoleModal onClose={() => setShowCreate(false)} onCreate={async (name, desc) => { const id = await data.createRole(name, desc); if (id) setActiveRole(id); setShowCreate(false); }} />}
     </div>
+  );
+}
+
+function CreateRoleModal({ onClose, onCreate }: { onClose: () => void; onCreate: (name: string, desc: string) => void }) {
+  const [name, setName] = useState("");
+  const [desc, setDesc] = useState("");
+  return (
+    <Modal
+      open={true}
+      onClose={onClose}
+      title="Create custom role"
+      footer={
+        <>
+          <button className="btn btn-secondary" onClick={onClose}>Cancel</button>
+          <button className="btn btn-primary" disabled={!name.trim()} onClick={() => onCreate(name.trim(), desc.trim())}>Create role</button>
+        </>
+      }
+    >
+      <div className="col" style={{ gap: 14 }}>
+        <div className="field"><label className="field-label">Role name</label><input className="input" placeholder="e.g. Physio" value={name} onChange={(e) => setName(e.target.value)} autoFocus /></div>
+        <div className="field"><label className="field-label">Description</label><textarea className="input" placeholder="What can this role do?" value={desc} onChange={(e) => setDesc(e.target.value)} /></div>
+        <div className="text-xs muted">You can toggle this role&apos;s permissions in the matrix after creating it.</div>
+      </div>
+    </Modal>
   );
 }
 
 function SecuritySettings() {
   return (
     <div className="col" style={{ gap: 12 }}>
-      <SettingCard title="Two-factor authentication" desc="Add an extra layer of security to your account.">
-        <div className="row">
-          <Icon name="fingerprint" size={20} style={{ color: "var(--success)" }} />
-          <div style={{ flex: 1 }}>
-            <div className="fw-600">Authenticator app · enabled</div>
-            <div className="text-sm muted">Last verified May 12 · Recovery codes generated</div>
-          </div>
-          <button className="btn btn-secondary btn-sm">Manage</button>
-        </div>
-      </SettingCard>
-
-      <SettingCard title="Password">
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
-          <div className="field"><label className="field-label">Current</label><input className="input" type="password" defaultValue="••••••••" /></div>
-          <div className="field"><label className="field-label">New</label><input className="input" type="password" /></div>
-          <div className="field"><label className="field-label">Confirm</label><input className="input" type="password" /></div>
-        </div>
-        <div className="row" style={{ marginTop: 14, justifyContent: "flex-end" }}>
-          <button className="btn btn-primary">Update password</button>
-        </div>
-      </SettingCard>
-
-      <SettingCard title="Single Sign-On (SSO)">
-        <div className="col" style={{ gap: 8 }}>
-          <div className="row">
-            <svg width="20" height="20" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" /><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" /><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z" /><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" /></svg>
-            <div style={{ flex: 1 }}><div className="fw-600">Google Workspace</div><div className="text-sm muted">lane-athletics.io · connected</div></div>
-            <Badge variant="success" dot>Active</Badge>
-          </div>
-          <div className="row" style={{ borderTop: "1px solid var(--border-1)", paddingTop: 10 }}>
-            <Icon name="qr" size={18} style={{ color: "var(--fg-3)" }} />
-            <div style={{ flex: 1 }}><div className="fw-600">SAML 2.0</div><div className="text-sm muted">Connect Okta, Azure AD, OneLogin</div></div>
-            <button className="btn btn-secondary btn-sm">Connect</button>
-          </div>
-        </div>
-      </SettingCard>
-
-      <SettingCard title="API tokens">
-        <div className="col" style={{ gap: 6 }}>
-          {[
-            { name: "Mobile app token", created: "2025-11-04", scope: "read-only" },
-            { name: "CI integration", created: "2026-02-19", scope: "full" },
-          ].map((t, i) => (
-            <div key={i} className="row" style={{ padding: "10px 0", borderBottom: i === 0 ? "1px solid var(--border-1)" : "none" }}>
-              <Icon name="key" size={16} style={{ color: "var(--fg-3)" }} />
-              <div style={{ flex: 1 }}><div className="fw-600">{t.name}</div><div className="text-xs muted mono">sk_•••••••••••••sJh3 · {t.scope}</div></div>
-              <div className="text-xs muted">{t.created}</div>
-              <button className="btn btn-ghost btn-sm" style={{ color: "var(--danger)" }}>Revoke</button>
-            </div>
-          ))}
-          <button className="btn btn-secondary btn-sm" style={{ marginTop: 10, alignSelf: "flex-start" }}><Icon name="plus" size={13} /> Generate token</button>
-        </div>
-      </SettingCard>
+      <MfaCard />
+      <PasswordCard />
     </div>
   );
 }
 
-function SessionsSettings() {
-  const { sessions, revokeSession } = useLane();
+// Real TOTP two-factor via Supabase MFA: enroll → scan QR → verify code.
+function MfaCard() {
+  const push = useToast();
+  const [supabase] = useState(() => createClient());
+  const [loading, setLoading] = useState(true);
+  const [factorId, setFactorId] = useState<string | null>(null); // verified factor
+  const [enroll, setEnroll] = useState<{ id: string; qr: string; secret: string } | null>(null);
+  const [code, setCode] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const refresh = async () => {
+    const { data } = await supabase.auth.mfa.listFactors();
+    const verified = (data?.totp || []).find((f: { id: string; status: string }) => f.status === "verified");
+    setFactorId(verified?.id || null);
+    setLoading(false);
+  };
+  useEffect(() => { refresh(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const startEnroll = async () => {
+    setBusy(true);
+    const { data, error } = await supabase.auth.mfa.enroll({ factorType: "totp" });
+    setBusy(false);
+    if (error || !data) { push({ title: error?.message || "Could not start 2FA", variant: "danger" }); return; }
+    setEnroll({ id: data.id, qr: data.totp.qr_code, secret: data.totp.secret });
+  };
+
+  const verify = async () => {
+    if (!enroll) return;
+    setBusy(true);
+    const { data: ch, error: chErr } = await supabase.auth.mfa.challenge({ factorId: enroll.id });
+    if (chErr || !ch) { setBusy(false); push({ title: chErr?.message || "Verification failed", variant: "danger" }); return; }
+    const { error } = await supabase.auth.mfa.verify({ factorId: enroll.id, challengeId: ch.id, code });
+    setBusy(false);
+    if (error) { push({ title: error.message || "Invalid code", variant: "danger" }); return; }
+    push({ title: "Two-factor enabled", variant: "success" });
+    setEnroll(null); setCode("");
+    refresh();
+  };
+
+  const disable = async () => {
+    if (!factorId) return;
+    setBusy(true);
+    const { error } = await supabase.auth.mfa.unenroll({ factorId });
+    setBusy(false);
+    if (error) { push({ title: error.message, variant: "danger" }); return; }
+    push({ title: "Two-factor disabled", variant: "info" });
+    refresh();
+  };
+
   return (
-    <SettingCard title="Active sessions" desc="Devices currently signed into your Lane account.">
-      <div className="col" style={{ gap: 8 }}>
-        {sessions.map((s) => (
-          <div key={s.id} className="row" style={{ padding: 14, border: "1px solid var(--border-1)", borderRadius: "var(--r-md)", background: s.current ? "var(--accent-soft)" : "var(--bg-1)" }}>
-            <div style={{ width: 36, height: 36, borderRadius: 8, background: "var(--bg-2)", display: "grid", placeItems: "center", color: "var(--fg-2)" }}>
-              <Icon name={s.icon} size={18} />
-            </div>
-            <div style={{ flex: 1 }}>
-              <div className="row" style={{ gap: 6 }}>
-                <div className="fw-600">{s.device}</div>
-                {s.current && <Badge variant="accent" dot>This device</Badge>}
-              </div>
-              <div className="text-xs muted">{s.loc}</div>
-            </div>
-            <div className="text-sm muted">{s.last}</div>
-            {!s.current && <button className="btn btn-ghost btn-sm" style={{ color: "var(--danger)" }} onClick={() => revokeSession(s.id)}>Revoke</button>}
+    <SettingCard title="Two-factor authentication" desc="Add an extra layer of security with an authenticator app (TOTP).">
+      {loading ? (
+        <div className="text-sm muted">Loading…</div>
+      ) : factorId ? (
+        <div className="row">
+          <Icon name="fingerprint" size={20} style={{ color: "var(--success)" }} />
+          <div style={{ flex: 1 }}>
+            <div className="fw-600">Authenticator app · enabled</div>
+            <div className="text-sm muted">Your account is protected by a one-time code.</div>
           </div>
-        ))}
+          <button className="btn btn-secondary btn-sm" onClick={disable} disabled={busy}>Disable</button>
+        </div>
+      ) : enroll ? (
+        <div className="col" style={{ gap: 12 }}>
+          <div className="text-sm muted">Scan this QR code with Google Authenticator, 1Password or Authy, then enter the 6-digit code.</div>
+          <div className="row" style={{ gap: 16, alignItems: "flex-start" }}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={enroll.qr} alt="2FA QR code" width={160} height={160} style={{ background: "#fff", borderRadius: 8, padding: 6 }} />
+            <div className="col" style={{ gap: 8, flex: 1 }}>
+              <div className="text-xs muted">Or enter this secret manually:</div>
+              <div className="mono text-sm" style={{ wordBreak: "break-all", background: "var(--bg-2)", padding: "8px 10px", borderRadius: 6 }}>{enroll.secret}</div>
+              <div className="field"><label className="field-label">Verification code</label><input className="input mono" inputMode="numeric" placeholder="123456" value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))} /></div>
+              <div className="row" style={{ gap: 8 }}>
+                <button className="btn btn-secondary btn-sm" onClick={() => { setEnroll(null); setCode(""); }}>Cancel</button>
+                <button className="btn btn-primary btn-sm" onClick={verify} disabled={busy || code.length !== 6}>Verify &amp; enable</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="row">
+          <Icon name="fingerprint" size={20} style={{ color: "var(--fg-3)" }} />
+          <div style={{ flex: 1 }}>
+            <div className="fw-600">Authenticator app · disabled</div>
+            <div className="text-sm muted">Protect your account with a rotating one-time code.</div>
+          </div>
+          <button className="btn btn-primary btn-sm" onClick={startEnroll} disabled={busy}>Enable</button>
+        </div>
+      )}
+    </SettingCard>
+  );
+}
+
+function PasswordCard() {
+  const push = useToast();
+  const { currentUser } = useLane();
+  const [supabase] = useState(() => createClient());
+  const [cur, setCur] = useState("");
+  const [next, setNext] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const update = async () => {
+    if (next.length < 8) { push({ title: "New password must be at least 8 characters", variant: "danger" }); return; }
+    if (next !== confirm) { push({ title: "Passwords don't match", variant: "danger" }); return; }
+    if (!currentUser?.email) { push({ title: "No account email found", variant: "danger" }); return; }
+    setBusy(true);
+    // Verify the current password by re-authenticating before changing it.
+    const { error: authErr } = await supabase.auth.signInWithPassword({ email: currentUser.email, password: cur });
+    if (authErr) { setBusy(false); push({ title: "Current password is incorrect", variant: "danger" }); return; }
+    const { error } = await supabase.auth.updateUser({ password: next });
+    setBusy(false);
+    if (error) { push({ title: error.message, variant: "danger" }); return; }
+    push({ title: "Password updated", variant: "success" });
+    setCur(""); setNext(""); setConfirm("");
+  };
+
+  return (
+    <SettingCard title="Password" desc="Enter your current password, then choose a new one.">
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+        <div className="field"><label className="field-label">Current</label><input className="input" type="password" value={cur} onChange={(e) => setCur(e.target.value)} /></div>
+        <div className="field"><label className="field-label">New</label><input className="input" type="password" value={next} onChange={(e) => setNext(e.target.value)} /></div>
+        <div className="field"><label className="field-label">Confirm</label><input className="input" type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} /></div>
       </div>
       <div className="row" style={{ marginTop: 14, justifyContent: "flex-end" }}>
-        <button className="btn btn-secondary" onClick={() => sessions.filter((s) => !s.current).forEach((s) => revokeSession(s.id))}>Sign out everywhere</button>
+        <button className="btn btn-primary" onClick={update} disabled={busy || !cur || !next || !confirm}>{busy ? "Updating…" : "Update password"}</button>
       </div>
     </SettingCard>
   );
 }
 
-function NotifSettings() {
+function SessionsSettings() {
+  const router = useRouter();
+  const push = useToast();
+  const [supabase] = useState(() => createClient());
+  const [session, setSession] = useState<{ signedInAt: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase.auth.getSession();
+      if (data.session) {
+        // last sign-in time from the JWT issued-at claim
+        const iat = (data.session as any).user?.last_sign_in_at || null;
+        setSession({ signedInAt: iat ? new Date(iat).toLocaleString() : "This session" });
+      }
+    })();
+  }, [supabase]);
+
+  const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
+  const browser = /Edg/.test(ua) ? "Microsoft Edge" : /Chrome/.test(ua) ? "Chrome" : /Firefox/.test(ua) ? "Firefox" : /Safari/.test(ua) ? "Safari" : "This browser";
+  const os = /Windows/.test(ua) ? "Windows" : /Mac/.test(ua) ? "macOS" : /Android/.test(ua) ? "Android" : /iPhone|iPad/.test(ua) ? "iOS" : /Linux/.test(ua) ? "Linux" : "";
+
+  const signOutEverywhere = async () => {
+    setBusy(true);
+    await supabase.auth.signOut({ scope: "global" });
+    push({ title: "Signed out on all devices", variant: "info" });
+    router.push("/signin");
+    router.refresh();
+  };
+
   return (
-    <SettingCard title="Notification preferences" desc="Choose how you want to be alerted.">
+    <SettingCard title="Active sessions" desc="Your current sign-in. Signing out everywhere ends every session on all devices.">
+      <div className="col" style={{ gap: 8 }}>
+        <div className="row" style={{ padding: 14, border: "1px solid var(--border-1)", borderRadius: "var(--r-md)", background: "var(--accent-soft)" }}>
+          <div style={{ width: 36, height: 36, borderRadius: 8, background: "var(--bg-2)", display: "grid", placeItems: "center", color: "var(--fg-2)" }}>
+            <Icon name="desktop" size={18} />
+          </div>
+          <div style={{ flex: 1 }}>
+            <div className="row" style={{ gap: 6 }}>
+              <div className="fw-600">{browser}{os ? ` · ${os}` : ""}</div>
+              <Badge variant="accent" dot>This device</Badge>
+            </div>
+            <div className="text-xs muted">Signed in {session?.signedInAt || "—"}</div>
+          </div>
+        </div>
+        <div className="text-xs muted" style={{ padding: "0 2px" }}>
+          Only your current session is shown — listing other devices isn&apos;t available from the browser. Use &ldquo;Sign out everywhere&rdquo; to revoke all sessions.
+        </div>
+      </div>
+      <div className="row" style={{ marginTop: 14, justifyContent: "flex-end" }}>
+        <button className="btn btn-secondary" onClick={signOutEverywhere} disabled={busy}>Sign out everywhere</button>
+      </div>
+    </SettingCard>
+  );
+}
+
+function NotifSettings({ data }: { data: SettingsData }) {
+  const push = useToast();
+  const prefs = data.settings.notifPrefs;
+
+  const toggle = async (key: string, col: number) => {
+    const cur = (prefs[key] || [false, false]).slice(0, NOTIF_CHANNELS.length);
+    const nextRow = NOTIF_CHANNELS.map((_, i) => (i === col ? !cur[i] : !!cur[i]));
+    const nextPrefs = { ...prefs, [key]: nextRow };
+    const { error } = (await data.saveSettings({ notifPrefs: nextPrefs })) || {};
+    if (error) push({ title: "Could not save preference", variant: "danger" });
+  };
+
+  return (
+    <SettingCard title="Notification preferences" desc="Choose how you want to be alerted. Changes save automatically.">
       <table className="table" style={{ border: "1px solid var(--border-1)", borderRadius: "var(--r-md)", overflow: "hidden" }}>
         <thead>
-          <tr><th>Event</th><th style={{ textAlign: "center" }}>In-app</th><th style={{ textAlign: "center" }}>Email</th><th style={{ textAlign: "center" }}>Push</th><th style={{ textAlign: "center" }}>SMS</th></tr>
+          <tr><th>Event</th>{NOTIF_CHANNELS.map((c) => <th key={c} style={{ textAlign: "center" }}>{c}</th>)}</tr>
         </thead>
         <tbody>
-          {[
-            { e: "Competition reminders", v: [true, true, true, false] },
-            { e: "Calendar conflicts", v: [true, true, false, false] },
-            { e: "Document expiry alerts", v: [true, true, false, true] },
-            { e: "Personal best logged", v: [true, false, true, false] },
-            { e: "New team invitations", v: [true, true, false, false] },
-            { e: "System status updates", v: [true, true, false, false] },
-          ].map((row, i) => (
-            <tr key={i} style={{ cursor: "default" }}>
-              <td className="fw-500">{row.e}</td>
-              {row.v.map((on, j) => (
-                <td key={j} style={{ textAlign: "center" }}><button className="switch" data-on={on ? "true" : "false"} /></td>
-              ))}
-            </tr>
-          ))}
+          {NOTIF_EVENTS.map((row) => {
+            const vals = (prefs[row.key] || row.default).slice(0, NOTIF_CHANNELS.length);
+            return (
+              <tr key={row.key} style={{ cursor: "default" }}>
+                <td className="fw-500">{row.label}</td>
+                {NOTIF_CHANNELS.map((_, j) => (
+                  <td key={j} style={{ textAlign: "center" }}><button className="switch" data-on={vals[j] ? "true" : "false"} onClick={() => toggle(row.key, j)} /></td>
+                ))}
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </SettingCard>

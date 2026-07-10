@@ -53,7 +53,7 @@ function pageFromPath(pathname: string): string {
 }
 
 export function Sidebar() {
-  const { athletes, tweaks, navigate, setCmdOpen, unreadCount, t } = useLane();
+  const { athletes, tweaks, navigate, setCmdOpen, unreadCount, t, currentUser } = useLane();
   const pathname = usePathname();
   const currentPage = pageFromPath(pathname);
   const variant = tweaks.sidebar;
@@ -144,11 +144,11 @@ export function Sidebar() {
       </nav>
 
       <div className="sidebar-footer">
-        <div className="sidebar-footer-user">
-          <Avatar name="Lena Andersen" color="#5b6ef5" size="sm" dot="online" />
+        <div className="sidebar-footer-user" onClick={() => navigate("settings", "profile")} role="button" tabIndex={0} title="Your profile" style={{ cursor: "pointer" }}>
+          <Avatar name={currentUser?.name || "Account"} color={currentUser?.color || "#5b6ef5"} size="sm" dot="online" />
           <div className="org-text">
-            <b>Lane Athletics</b>
-            <span>Lena · Admin</span>
+            <b>{currentUser?.name || "Account"}</b>
+            <span>{currentUser?.title || currentUser?.email || ""}</span>
           </div>
           {variant !== "rail" && <Icon name="chevronDown" size={14} style={{ color: "var(--fg-3)" }} />}
         </div>

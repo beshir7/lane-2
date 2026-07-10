@@ -29,6 +29,24 @@ export const ALL_DISCIPLINES: string[] = [
   "25 Km", "30 Km", "Marathon", "Ekiden", "Cross",
 ];
 
+// ---- Workspace / General settings vocabulary ----------------------------
+// Countries the agency operates across, and one representative time zone per
+// country (Ethiopia + Kenya share EAT UTC+3, so 5 zones over 4 offsets).
+export const SETTINGS_COUNTRIES: string[] = ["Ethiopia", "Kenya", "Norway", "USA", "UK"];
+
+export const SETTINGS_TIMEZONES: { value: string; label: string }[] = [
+  { value: "Africa/Addis_Ababa", label: "Africa/Addis Ababa (UTC+3)" }, // Ethiopia
+  { value: "Africa/Nairobi", label: "Africa/Nairobi (UTC+3)" },         // Kenya
+  { value: "Europe/Oslo", label: "Europe/Oslo (UTC+1)" },               // Norway
+  { value: "Europe/London", label: "Europe/London (UTC+0)" },           // UK
+  { value: "America/New_York", label: "America/New York (UTC-5)" },     // USA
+];
+
+// The organization's discipline focus (agency runs distance/road athletes).
+export const ORG_DISCIPLINES: string[] = [
+  "Track & Field", "Road Running", "Marathon", "Half Marathon", "5000m", "Cross Country",
+];
+
 export const DOC_CATEGORIES: DocCategory[] = [
   { id: "all", label: "All documents", icon: "folder" },
   { id: "passport", label: "Passports", icon: "globe" },
