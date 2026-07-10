@@ -9,6 +9,7 @@ import { DateStack, EventTypeBadge, InfoRow, StatusBadge, BigStat, formatHour, E
 import { AthleteFormModal } from "./athlete-form-modal";
 import { TravelTab } from "./athlete-travel";
 import { useLane } from "@/components/lane-provider";
+import { placementColor } from "@/utils";
 import type { Athlete, CalendarEvent, Competition, RaceEntry } from "@/lib/types";
 
 const GENDER_COLOR: Record<string, string> = { F: "#f55b6e", M: "#5b6ef5", X: "var(--fg-1)" };
@@ -168,8 +169,8 @@ function OverviewTab({ athlete }: { athlete: Athlete }) {
         <div className="card">
           <div className="card-header"><div className="card-title">Physical & kit</div></div>
           <div style={{ padding: 18, display: "flex", flexDirection: "column", gap: 10 }}>
-            <InfoRow icon="user" label="Height" value={athlete.height ? `${athlete.height} cm` : "—"} />
-            <InfoRow icon="user" label="Weight" value={athlete.weight ? `${athlete.weight} kg` : "—"} />
+            <InfoRow icon="user" label="Height" value={athlete.height ? `${athlete.height} ${athlete.heightUnit || "cm"}` : "—"} />
+            <InfoRow icon="user" label="Weight" value={athlete.weight ? `${athlete.weight} ${athlete.weightUnit || "kg"}` : "—"} />
             <InfoRow icon="star" label="Sponsor" value={athlete.sponsor || "—"} />
             <InfoRow icon="star" label="Shoes" value={athlete.shoeSize || "—"} />
             <InfoRow icon="star" label="Clothing" value={athlete.clothingSize || "—"} />
@@ -301,7 +302,8 @@ function RadarChart({ athlete }: { athlete: Athlete }) {
 }
 
 function AthleteCompetitionsTab({ entries, competitions }: { entries: RaceEntry[]; competitions: Competition[] }) {
-  const compName = (id: string) => competitions.find((c) => c.id === id)?.name || id;
+  const comp = (id: string) => competitions.find((c) => c.id === id);
+  const compName = (id: string) => comp(id)?.name || id;
   if (entries.length === 0) {
     return (
       <div className="card">
@@ -309,30 +311,38 @@ function AthleteCompetitionsTab({ entries, competitions }: { entries: RaceEntry[
       </div>
     );
   }
+  // Chronological order (by competition date).
+  const ordered = [...entries].sort((a, b) => (comp(a.competitionId)?.date || "").localeCompare(comp(b.competitionId)?.date || ""));
   return (
-    <div className="card">
-      <div className="card-header"><div className="card-title">Race entries & results</div></div>
-      <table className="table">
-        <thead>
-          <tr><th>Competition</th><th>Discipline</th><th>Status</th><th>Place</th><th>Time</th><th>Wind</th><th>Note</th></tr>
-        </thead>
-        <tbody>
-          {entries.map((e) => (
-            <tr key={e.id}>
-              <td className="fw-600">{compName(e.competitionId)}</td>
-              <td>{e.discipline}</td>
-              <td><EntryStatusBadge status={e.status} /></td>
-              <td>{e.position ? <Badge variant={e.position === 1 ? "warning" : e.position <= 3 ? "info" : ""}>#{e.position}</Badge> : "—"}</td>
-              <td className="display fw-700 mono" style={{ color: "var(--accent)" }}>{e.time || "—"}</td>
-              <td className="text-sm mono">{e.wind || "—"}</td>
-              <td className="text-xs muted">{e.note || ""}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <div className="col" style={{ gap: 12 }}>
+      <div className="card">
+        <div className="card-header"><div className="card-title">Race entries & results</div></div>
+        <table className="table">
+          <thead>
+            <tr><th>Competition</th><th>Discipline</th><th>Status</th><th>Place</th><th>Time</th><th>Wind</th><th>Note</th></tr>
+          </thead>
+          <tbody>
+            {ordered.map((e) => {
+              const color = placementColor(e.position);
+              return (
+              <tr key={e.id} style={{ color: e.position != null ? color : undefined }}>
+                <td className="fw-600" style={{ color: e.position != null ? color : undefined }}>{compName(e.competitionId)}</td>
+                <td style={{ color: e.position != null ? color : undefined }}>{e.discipline}</td>
+                <td><EntryStatusBadge status={e.status} /></td>
+                <td>{e.position ? <span className="fw-700 mono">#{e.position}</span> : "—"}</td>
+                <td className="display fw-700 mono" style={{ color: e.position != null ? color : "var(--accent)" }}>{e.time || "—"}</td>
+                <td className="text-sm mono" style={{ color: e.position != null ? color : undefined }}>{e.wind || "—"}</td>
+                <td className="text-xs" style={{ color: e.position != null ? color : "var(--fg-3)" }}>{e.note || ""}</td>
+              </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
+
 
 function AthleteScheduleTab({ athleteEvents }: { athleteEvents: CalendarEvent[] }) {
   return (

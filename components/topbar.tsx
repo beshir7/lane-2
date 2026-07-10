@@ -7,6 +7,7 @@ import { usePathname, useParams } from "next/navigation";
 import { Icon } from "./icon";
 import { Avatar } from "./primitives";
 import { useLane } from "./lane-provider";
+import { PrintMenu } from "./print-menu";
 
 // URL segment → i18n nav key.
 const SEG_KEY: Record<string, string> = {
@@ -59,6 +60,8 @@ export function Topbar() {
       </button>
 
       <div className="topbar-actions">
+        <PrintMenu />
+
         <div className="sync-pill" title="Real-time sync active">
           <span>SYNCED</span>
         </div>
