@@ -38,3 +38,10 @@ jobs:
         run: npm run build
         env:
           NEXT_TELEMETRY_DISABLED: "1"
+          # NEXT_PUBLIC_* values are inlined into the client bundle at build time,
+          # so they must be present when `next build` prerenders the pages. These
+          # are public values (the anon key is guarded by Row-Level Security).
+          # Falls back to placeholders so CI passes even before the repo secrets
+          # are configured — the real values are supplied by Vercel at deploy time.
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co' }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder-anon-key' }}
