@@ -2,6 +2,11 @@
 const nextConfig = {
   reactStrictMode: true,
 
+  // Lint every source dir (default only covers app/components/lib/pages/src).
+  eslint: {
+    dirs: ["app", "components", "features", "lib", "utils", "hooks"],
+  },
+
   // Keep compiled routes in memory much longer so navigating back to a page
   // doesn't recompile it — the main cause of "clicking takes time" in dev.
   onDemandEntries: {

@@ -2,14 +2,14 @@
 
 // Documents — Library with categories, upload (drag-drop), preview modal, search.
 
-import React, { useEffect, useState } from "react";
 import { Icon } from "@/components/icon";
-import { Avatar, Badge, Modal, Segmented } from "@/components/primitives";
-import { InfoRow } from "@/components/shared";
-import { DOC_CATEGORIES } from "@/lib/reference";
 import { useLane } from "@/components/lane-provider";
-import { downloadWordDoc, downloadCsv } from "@/utils";
+import { Avatar, Badge, Modal, Segmented } from "@/components/primitives";
+import { FilterDropdown, InfoRow } from "@/components/shared";
+import { DOC_CATEGORIES } from "@/lib/reference";
 import type { Athlete, LaneDocument, Visa } from "@/lib/types";
+import { downloadCsv, downloadWordDoc } from "@/utils";
+import { useState } from "react";
 
 export function DocumentsScreen() {
   const { documents: docs, athletes, visas, addDocuments } = useLane();
@@ -18,22 +18,22 @@ export function DocumentsScreen() {
   const [view, setView] = useState<"grid" | "list">("grid");
   const [preview, setPreview] = useState<LaneDocument | null>(null);
   const [showUpload, setShowUpload] = useState(false);
+  const [typeFilter, setTypeFilter] = useState("all");
+  const [sortDir, setSortDir] = useState<"desc" | "asc">("desc");
 
-  const filtered = docs.filter((d) => {
-    if (category !== "all" && d.category !== category) return false;
-    if (search && !d.name.toLowerCase().includes(search.toLowerCase())) return false;
-    return true;
-  });
+  const filtered = docs
+    .filter((d) => {
+      if (category !== "all" && d.category !== category) return false;
+      if (typeFilter !== "all" && d.type !== typeFilter) return false;
+      if (search && !d.name.toLowerCase().includes(search.toLowerCase())) return false;
+      return true;
+    })
+    .sort((a, b) => (sortDir === "desc" ? (b.uploaded || "").localeCompare(a.uploaded || "") : (a.uploaded || "").localeCompare(b.uploaded || "")));
 
   const handleUpload = (files: { name: string }[]) => {
     addDocuments(files);
     setShowUpload(false);
   };
-
-  const catCounts = DOC_CATEGORIES.reduce<Record<string, number>>((acc, c) => {
-    acc[c.id] = c.id === "all" ? docs.length : docs.filter((d) => d.category === c.id).length;
-    return acc;
-  }, {});
 
   const totalSize = docs.reduce((s, d) => s + parseFloat(d.size), 0);
 
@@ -56,16 +56,8 @@ export function DocumentsScreen() {
             <button key={c.id} onClick={() => setCategory(c.id)} className="nav-item" aria-current={category === c.id ? "page" : undefined}>
               <span className="nav-item-icon"><Icon name={c.icon} size={15} /></span>
               <span className="nav-item-label">{c.label}</span>
-              <span className="nav-item-badge">{catCounts[c.id]}</span>
             </button>
           ))}
-          <div className="divider" style={{ margin: "8px 0" }} />
-          <div className="card card-pad" style={{ background: "var(--bg-2)", padding: 12, border: "none" }}>
-            <div className="text-xs muted mono fw-700" style={{ textTransform: "uppercase", letterSpacing: "0.05em" }}>Storage</div>
-            <div className="display fw-700" style={{ fontSize: 22, marginTop: 4, letterSpacing: "-0.02em" }}>{totalSize.toFixed(1)} <span className="text-sm" style={{ color: "var(--fg-3)", fontWeight: 500 }}>/ 5 GB</span></div>
-            <div className="progress" style={{ marginTop: 8 }}><div style={{ width: (totalSize / 5120) * 100 + "%" }} /></div>
-            <div className="text-xs muted" style={{ marginTop: 6 }}>You&apos;re using 0.9% of plan</div>
-          </div>
         </div>
 
         <div className="col" style={{ gap: 12 }}>
@@ -74,15 +66,18 @@ export function DocumentsScreen() {
               <Icon name="search" size={14} />
               <input className="input" placeholder="Search documents..." value={search} onChange={(e) => setSearch(e.target.value)} />
             </div>
-            <button className="btn btn-secondary btn-sm"><Icon name="filter" size={13} /> Filter</button>
-            <button className="btn btn-secondary btn-sm"><Icon name="sort" size={13} /> Date</button>
+            <FilterDropdown label="Type" value={typeFilter} options={[{ v: "all", l: "All types" }, { v: "pdf", l: "PDF" }, { v: "image", l: "Images" }, { v: "doc", l: "Docs" }]} onChange={setTypeFilter} />
+            <button className="btn btn-secondary btn-sm" onClick={() => setSortDir((d) => (d === "desc" ? "asc" : "desc"))} title="Sort by date">
+              <Icon name={sortDir === "desc" ? "chevronDown" : "chevronUp"} size={13} /> Date
+            </button>
             <Segmented options={[{ value: "grid", icon: "grid", label: "Grid" }, { value: "list", icon: "list", label: "List" }]} value={view} onChange={setView} />
           </div>
 
           {category === "visa" && <VisaListPanel visas={visas} athletes={athletes} search={search} />}
+          {category === "visa" && <RaceVisaPanel search={search} />}
 
           {filtered.length === 0 ? (
-            <UploadDropzone onUpload={handleUpload} empty />
+            category === "visa" ? null : <UploadDropzone onUpload={handleUpload} empty />
           ) : (
             <>
               {view === "grid" ? (
@@ -138,7 +133,6 @@ export function DocumentsScreen() {
       </div>
 
       {preview && <DocumentPreviewModal doc={preview} athletes={athletes} onClose={() => setPreview(null)} />}
-      {showUpload && <UploadModal onClose={() => setShowUpload(false)} onUpload={handleUpload} />}
     </div>
   );
 }
@@ -235,6 +229,85 @@ function VisaListPanel({ visas, athletes, search }: { visas: Visa[]; athletes: A
   );
 }
 
+// Race visa check (photo_3): one page showing, per race, the athletes competing
+// and whether each one's visa is valid for that race's date. Built live from race
+// entries + visas, so it stays in sync. Printable / savable.
+type VisaStatus = "valid" | "expired" | "unknown" | "missing";
+function RaceVisaPanel({ search }: { search: string }) {
+  const { competitions, entries, visas, athletes } = useLane();
+  const nameOf = (id: string) => { const a = athletes.find((x) => x.id === id); return a ? `${a.last} ${a.first}` : id; };
+
+  const statusFor = (athleteId: string, raceDate: string): { status: VisaStatus; visa?: Visa } => {
+    const mine = visas.filter((v) => v.athleteId === athleteId && !v.archived);
+    if (mine.length === 0) return { status: "missing" };
+    const covering = mine.find((v) => !v.notKnown && v.validFrom && v.validTo && v.validFrom <= raceDate && raceDate <= v.validTo);
+    if (covering) return { status: "valid", visa: covering };
+    const unknown = mine.find((v) => v.notKnown);
+    if (unknown) return { status: "unknown", visa: unknown };
+    // Newest visa on file that doesn't cover the date → treat as expired/invalid.
+    const latest = [...mine].sort((a, b) => (b.validTo || "").localeCompare(a.validTo || ""))[0];
+    return { status: "expired", visa: latest };
+  };
+
+  const badge: Record<VisaStatus, { label: string; variant: "success" | "danger" | "warning" | "" }> = {
+    valid: { label: "Valid", variant: "success" },
+    expired: { label: "Not valid", variant: "danger" },
+    unknown: { label: "Unknown", variant: "warning" },
+    missing: { label: "No visa", variant: "" },
+  };
+
+  // One flat row per (race, athlete) — same single-table format as the visa list.
+  const rows = competitions
+    .filter((c) => entries.some((e) => e.competitionId === c.id))
+    .flatMap((c) => Array.from(new Set(entries.filter((e) => e.competitionId === c.id).map((e) => e.athleteId)))
+      .map((aid) => ({ race: c, athleteId: aid, name: nameOf(aid), ...statusFor(aid, c.date) })))
+    .filter((r) => !search || r.name.toLowerCase().includes(search.toLowerCase()) || r.race.name.toLowerCase().includes(search.toLowerCase()))
+    .sort((a, b) => (+new Date(a.race.date) - +new Date(b.race.date)) || a.name.localeCompare(b.name));
+
+  const esc = (s: string) => String(s ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]!));
+  const printList = () => {
+    const body = `<h1>Race visa check</h1><table><tr><th>Race</th><th>Date</th><th>Athlete</th><th>Visa</th><th>Valid from</th><th>Valid to</th><th>Embassy</th><th>Status</th></tr>${rows
+      .map((r) => `<tr><td>${esc(r.race.name)}</td><td>${esc(r.race.date)}</td><td>${esc(r.name)}</td><td>${esc(r.visa?.type || r.visa?.kind || "—")}</td><td>${esc(r.visa?.validFrom || "—")}</td><td>${esc(r.visa?.validTo || "—")}</td><td>${esc(r.visa?.embassy || "—")}</td><td>${esc(badge[r.status].label)}</td></tr>`)
+      .join("")}</table>`;
+    downloadWordDoc("race-visa-check", body, "Race visa check");
+  };
+  const exportCsv = () => downloadCsv("race-visa-check", rows.map((r) => ({
+    race: r.race.name, date: r.race.date, athlete: r.name, visa: r.visa?.type || r.visa?.kind || "", valid_from: r.visa?.validFrom || "", valid_to: r.visa?.validTo || "", embassy: r.visa?.embassy || "", status: badge[r.status].label,
+  })));
+
+  return (
+    <div className="card">
+      <div className="card-header">
+        <div className="card-title">Race visa check · {rows.length}</div>
+        <div className="row" style={{ gap: 6 }}>
+          <button className="btn btn-secondary btn-sm" onClick={exportCsv}><Icon name="download" size={13} /> Save (CSV)</button>
+          <button className="btn btn-secondary btn-sm" onClick={printList}><Icon name="fileText" size={13} /> Print</button>
+        </div>
+      </div>
+      {rows.length === 0 ? (
+        <div className="text-sm muted" style={{ padding: 18 }}>Enter athletes into races to check their visas here.</div>
+      ) : (
+        <table className="table">
+          <thead><tr><th>Race</th><th>Athlete</th><th>Visa</th><th>Valid from</th><th>Valid to</th><th>Embassy</th><th style={{ width: 90 }}>Status</th></tr></thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={`${r.race.id}-${r.athleteId}`}>
+                <td><div className="fw-600">{r.race.name}</div><div className="text-xs muted mono">{r.race.date}</div></td>
+                <td className="fw-600">{r.name}</td>
+                <td>{r.visa?.type || r.visa?.kind || "—"}</td>
+                <td className="text-sm mono muted">{r.visa?.validFrom || "—"}</td>
+                <td className="text-sm mono">{r.visa?.validTo || "—"}</td>
+                <td className="text-sm">{r.visa?.embassy || "—"}</td>
+                <td><Badge variant={badge[r.status].variant}>{badge[r.status].label}</Badge></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
 function UploadDropzone({ onUpload, empty }: { onUpload: (files: { name: string }[]) => void; empty?: boolean }) {
   const [over, setOver] = useState(false);
   return (
@@ -267,74 +340,6 @@ function UploadDropzone({ onUpload, empty }: { onUpload: (files: { name: string 
       </div>
       {empty && <div className="text-sm muted" style={{ marginTop: 4 }}>or click to browse — PDF, JPG, PNG up to 25 MB each</div>}
     </div>
-  );
-}
-
-export function UploadModal({ onClose, onUpload }: { onClose: () => void; onUpload: (files: { name: string }[]) => void }) {
-  const [files, setFiles] = useState([
-    { name: "Passport — Reyes 2026.pdf", size: "1.8 MB", progress: 100, done: true },
-    { name: "Visa Application — Mensah.pdf", size: "3.2 MB", progress: 68, done: false },
-    { name: "Headshot — Whitaker.jpg", size: "2.4 MB", progress: 22, done: false },
-  ]);
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setFiles((fs) => fs.map((f) => (f.done ? f : { ...f, progress: Math.min(100, f.progress + 8), done: f.progress >= 92 })));
-    }, 200);
-    return () => clearInterval(interval);
-  }, []);
-
-  const allDone = files.every((f) => f.done);
-
-  return (
-    <Modal
-      open={true}
-      onClose={onClose}
-      size="lg"
-      title="Upload documents"
-      footer={
-        <>
-          <button className="btn btn-secondary" onClick={onClose}>Cancel</button>
-          <button className="btn btn-primary" disabled={!allDone} onClick={() => onUpload(files.map((f) => ({ name: f.name })))}>
-            {allDone ? "Finish" : `Uploading ${files.filter((f) => !f.done).length}…`}
-          </button>
-        </>
-      }
-    >
-      <div className="col" style={{ gap: 14 }}>
-        <UploadDropzone onUpload={(f) => setFiles((fs) => [...fs, ...f.map((x) => ({ name: x.name, size: "1 MB", progress: 0, done: false }))])} />
-
-        <div>
-          <div className="text-xs muted mono fw-700" style={{ textTransform: "uppercase", letterSpacing: "0.06em" }}>Queue · {files.length} files</div>
-          <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 6 }}>
-            {files.map((f, i) => (
-              <div key={i} className="card card-pad row" style={{ padding: 12, gap: 12 }}>
-                <Icon name={f.name.endsWith(".pdf") ? "filePdf" : "fileImage"} size={20} style={{ color: f.name.endsWith(".pdf") ? "var(--danger)" : "var(--success)" }} />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div className="row" style={{ justifyContent: "space-between" }}>
-                    <div className="fw-600 text-sm" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.name}</div>
-                    <div className="text-xs muted mono">{f.size}</div>
-                  </div>
-                  <div className="row" style={{ gap: 10, marginTop: 4 }}>
-                    <div className="progress" style={{ flex: 1 }}><div style={{ width: f.progress + "%", background: f.done ? "var(--success)" : "var(--accent)" }} /></div>
-                    {f.done ? <Icon name="success" size={14} style={{ color: "var(--success)" }} /> : <span className="text-xs muted mono">{f.progress}%</span>}
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="card card-pad" style={{ padding: 12, background: "var(--bg-2)" }}>
-          <div className="row" style={{ alignItems: "flex-start" }}>
-            <Icon name="info" size={16} style={{ color: "var(--info)" }} />
-            <div className="text-sm">
-              <b>Files are encrypted at rest.</b> <span className="muted">Sensitive documents (passports, medical) require an extra access permission.</span>
-            </div>
-          </div>
-        </div>
-      </div>
-    </Modal>
   );
 }
 

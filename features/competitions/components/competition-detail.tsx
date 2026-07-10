@@ -5,14 +5,14 @@
 
 import { Icon } from "@/components/icon";
 import { useLane } from "@/components/lane-provider";
-import { Avatar, Badge, EmptyState, Modal, Tabs } from "@/components/primitives";
+import { Avatar, Badge, ConfirmModal, EmptyState, Modal, Tabs } from "@/components/primitives";
 import { BigStat, DateStack, EntryStatusBadge, InfoRow } from "@/components/shared";
 import type { Athlete, Competition, EntryStatus, MeetingDiscipline, RaceEntry } from "@/lib/types";
 import { ALL_DISCIPLINES } from "@/lib/reference";
 import { downloadCsv, placementColor } from "@/utils";
 import { PlacementStats } from "@/components/placement-stats";
-import React, { useState } from "react";
-import { CompStatusBadge } from "./competitions-screen";
+import React, { useEffect, useState } from "react";
+import { CompStatusBadge, CompetitionFormModal } from "./competitions-screen";
 
 const ENTRY_STATUSES: { v: EntryStatus; l: string }[] = [
   { v: "proposed", l: "Proposed" },
@@ -27,13 +27,12 @@ export function CompetitionDetail({ competitionId }: { competitionId: string }) 
   const [tab, setTab] = useState("overview");
   const [showAdd, setShowAdd] = useState(false);
   const [showDisc, setShowDisc] = useState(false);
+  const [showEdit, setShowEdit] = useState(false);
   const [foglio, setFoglio] = useState<null | { withAthletes: boolean }>(null);
+  const [foglioAsk, setFoglioAsk] = useState(false);
   const [resultFor, setResultFor] = useState<RaceEntry | null>(null);
 
   if (!competition) return <div className="page">{t("race.notFound")}</div>;
-
-  // Race sheet (foglio gara): ask whether to include the athlete list (photo_15).
-  const openFoglio = () => setFoglio({ withAthletes: window.confirm(t("race.foglioConfirm")) });
 
   const compEntries = entries.filter((e) => e.competitionId === competition.id);
   const organizer = organizers.find((o) => o.id === competition.organizerId);
@@ -69,8 +68,9 @@ export function CompetitionDetail({ competitionId }: { competitionId: string }) 
             </div>
             <div className="col" style={{ gap: 6 }}>
               <button className="btn btn-primary" onClick={() => setShowAdd(true)}><Icon name="plus" size={13} /> {t("race.addAthletes")}</button>
+              <button className="btn btn-secondary btn-sm" onClick={() => setShowEdit(true)}><Icon name="edit" size={13} /> {t("races.edit")}</button>
               <button className="btn btn-secondary btn-sm" onClick={() => setShowDisc(true)}><Icon name="layers" size={13} /> {t("race.disciplines")}</button>
-              <button className="btn btn-secondary btn-sm" onClick={openFoglio}><Icon name="fileText" size={13} /> {t("race.sheet")}</button>
+              <button className="btn btn-secondary btn-sm" onClick={() => setFoglioAsk(true)}><Icon name="fileText" size={13} /> {t("race.sheet")}</button>
             </div>
           </div>
         </div>
@@ -93,8 +93,21 @@ export function CompetitionDetail({ competitionId }: { competitionId: string }) 
       {tab === "disciplines" && <CompDisciplinesTab disciplines={disciplines} entries={compEntries} athletes={athletes} />}
 
       {showAdd && <AddEntryModal competition={competition} disciplines={disciplines} athletes={athletes} onClose={() => setShowAdd(false)} />}
+      {showEdit && <CompetitionFormModal competition={competition} organizers={organizers} athletes={athletes} onClose={() => setShowEdit(false)} />}
       {showDisc && <DisciplineManagerModal competition={competition} onClose={() => setShowDisc(false)} />}
       {resultFor && <ResultModal entry={resultFor} athletes={athletes} onClose={() => setResultFor(null)} />}
+      {foglioAsk && (
+        <ConfirmModal
+          title={t("race.sheet")}
+          message={t("race.foglioConfirm")}
+          onCancel={() => setFoglioAsk(false)}
+          choices={[
+            { label: t("common.cancel"), variant: "ghost", onClick: () => setFoglioAsk(false) },
+            { label: t("race.foglioNoAthletes"), variant: "secondary", onClick: () => { setFoglio({ withAthletes: false }); setFoglioAsk(false); } },
+            { label: t("race.foglioWithAthletes"), variant: "primary", onClick: () => { setFoglio({ withAthletes: true }); setFoglioAsk(false); } },
+          ]}
+        />
+      )}
       {foglio && <FoglioModal competition={competition} organizer={organizer} entries={compEntries} athletes={athletes} withAthletes={foglio.withAthletes} onClose={() => setFoglio(null)} />}
     </div>
   );
@@ -215,25 +228,24 @@ function CompOverviewTab({ c, organizer, disciplines, entryCount }: { c: Competi
   );
 }
 
-function StatusSelect({ entry }: { entry: RaceEntry }) {
-  const { updateEntry, t } = useLane();
-  return (
-    <select
-      className="input"
-      style={{ padding: "4px 8px", fontSize: 12, height: "auto", width: "auto" }}
-      value={entry.status}
-      onClick={(e) => e.stopPropagation()}
-      onChange={(e) => updateEntry(entry.id, { status: e.target.value as EntryStatus })}
-    >
-      {ENTRY_STATUSES.map((s) => <option key={s.v} value={s.v}>{s.l}</option>)}
-    </select>
-  );
-}
-
 function CompEntriesTab({ entries, athletes, onAdd, onResult }: { entries: RaceEntry[]; athletes: Athlete[]; onAdd: () => void; onResult: (e: RaceEntry) => void }) {
-  const { deleteEntry } = useLane();
+  const { deleteEntry, updateEntry, t } = useLane();
+  const [menu, setMenu] = useState<{ x: number; y: number; entry: RaceEntry } | null>(null);
   const nameOf = (id: string) => { const a = athletes.find((x) => x.id === id); return a ? `${a.first} ${a.last}` : id; };
   const colorOf = (id: string) => athletes.find((x) => x.id === id)?.color || "#5b6ef5";
+
+  useEffect(() => {
+    if (!menu) return;
+    const close = () => setMenu(null);
+    window.addEventListener("click", close);
+    window.addEventListener("scroll", close, true);
+    return () => { window.removeEventListener("click", close); window.removeEventListener("scroll", close, true); };
+  }, [menu]);
+
+  const menuItem: React.CSSProperties = { display: "flex", alignItems: "center", gap: 8, padding: "7px 10px", borderRadius: 4, textAlign: "left", fontSize: 13, background: "transparent", color: "var(--fg-1)", width: "100%" };
+  const hoverOn = (e: React.MouseEvent<HTMLElement>) => (e.currentTarget.style.background = "var(--bg-2)");
+  const hoverOff = (e: React.MouseEvent<HTMLElement>) => (e.currentTarget.style.background = "transparent");
+
   return (
     <div className="card">
       <div className="card-header">
@@ -249,7 +261,7 @@ function CompEntriesTab({ entries, athletes, onAdd, onResult }: { entries: RaceE
           </thead>
           <tbody>
             {entries.map((e) => (
-              <tr key={e.id}>
+              <tr key={e.id} onContextMenu={(ev) => { ev.preventDefault(); setMenu({ x: ev.clientX, y: ev.clientY, entry: e }); }}>
                 <td>
                   <div className="row" style={{ gap: 10 }}>
                     <Avatar name={nameOf(e.athleteId)} color={colorOf(e.athleteId)} size="sm" />
@@ -257,7 +269,7 @@ function CompEntriesTab({ entries, athletes, onAdd, onResult }: { entries: RaceE
                   </div>
                 </td>
                 <td>{e.discipline} <span className="text-xs muted">({e.gender})</span></td>
-                <td><StatusSelect entry={e} /></td>
+                <td><EntryStatusBadge status={e.status} /></td>
                 <td>
                   <div className="row" style={{ gap: 4 }}>
                     <button className="btn btn-secondary btn-sm" onClick={() => onResult(e)}><Icon name="edit" size={12} /> Result</button>
@@ -268,6 +280,22 @@ function CompEntriesTab({ entries, athletes, onAdd, onResult }: { entries: RaceE
             ))}
           </tbody>
         </table>
+      )}
+      <div className="row" style={{ gap: 8, padding: "12px 18px", borderTop: "1px solid var(--border-1)", color: "var(--accent)" }}>
+        <Icon name="info" size={16} />
+        <span className="fw-700" style={{ fontSize: 15 }}>Right-click an athlete to set their status.</span>
+      </div>
+
+      {menu && (
+        <div style={{ position: "fixed", top: Math.min(menu.y, window.innerHeight - 220), left: Math.min(menu.x, window.innerWidth - 220), zIndex: 50, width: 200, background: "var(--bg-1)", border: "1px solid var(--border-2)", borderRadius: "var(--r-md)", boxShadow: "var(--shadow-lift)", padding: 4 }}>
+          <div className="text-xs mono fw-700 muted" style={{ textTransform: "uppercase", letterSpacing: "0.05em", padding: "4px 10px 2px" }}>Set status</div>
+          {ENTRY_STATUSES.map((s) => (
+            <button key={s.v} style={menuItem} onMouseEnter={hoverOn} onMouseLeave={hoverOff} onClick={() => { updateEntry(menu.entry.id, { status: s.v }); setMenu(null); }}>
+              <span style={{ width: 14, display: "inline-flex" }}>{menu.entry.status === s.v && <Icon name="check" size={13} style={{ color: "var(--accent)" }} />}</span>
+              {t(`entry.${s.v}`)}
+            </button>
+          ))}
+        </div>
       )}
     </div>
   );

@@ -2,15 +2,15 @@
 
 // Athlete detail profile with tabbed content.
 
-import React, { useMemo, useState } from "react";
 import { Icon } from "@/components/icon";
+import { useLane } from "@/components/lane-provider";
 import { Avatar, Badge, EmptyState, Tabs, Tag } from "@/components/primitives";
-import { DateStack, EventTypeBadge, InfoRow, StatusBadge, BigStat, formatHour, EntryStatusBadge } from "@/components/shared";
+import { BigStat, EntryStatusBadge, InfoRow, StatusBadge } from "@/components/shared";
+import type { Athlete, Competition, RaceEntry } from "@/lib/types";
+import { placementColor } from "@/utils";
+import { useState } from "react";
 import { AthleteFormModal } from "./athlete-form-modal";
 import { TravelTab } from "./athlete-travel";
-import { useLane } from "@/components/lane-provider";
-import { placementColor } from "@/utils";
-import type { Athlete, CalendarEvent, Competition, RaceEntry } from "@/lib/types";
 
 const GENDER_COLOR: Record<string, string> = { F: "#f55b6e", M: "#5b6ef5", X: "var(--fg-1)" };
 
@@ -37,9 +37,7 @@ export function AthleteProfile({ athleteId }: { athleteId: string }) {
         <div style={{ height: 120, background: `linear-gradient(135deg, ${athlete.color}aa 0%, ${athlete.color}33 60%, transparent 100%)`, position: "relative" }}>
           <div style={{ position: "absolute", inset: 0, backgroundImage: "repeating-linear-gradient(0deg, transparent 0 39px, rgba(255,255,255,0.06) 39px 40px)" }} />
           <div style={{ position: "absolute", top: 16, right: 18, display: "flex", gap: 6 }}>
-            <button className="btn btn-secondary btn-sm"><Icon name="share" size={13} /> Share</button>
             <button className="btn btn-secondary btn-sm" onClick={() => setEditing(true)}><Icon name="edit" size={13} /> Edit</button>
-            <button className="btn btn-secondary btn-sm"><Icon name="moreV" size={13} /></button>
           </div>
         </div>
         <div style={{ padding: "0 24px 20px", marginTop: -42 }}>
@@ -75,21 +73,17 @@ export function AthleteProfile({ athleteId }: { athleteId: string }) {
       <Tabs
         tabs={[
           { value: "overview", label: "Overview" },
-          { value: "performance", label: "Performance", count: Object.keys(athlete.pb).length },
           { value: "competitions", label: "Competitions", count: athleteEntries.length },
           { value: "travel", label: "Passports & visas", count: athletePassports.length + athleteVisas.length },
-          { value: "schedule", label: "Schedule", count: athleteEvents.length },
           { value: "history", label: "History" },
         ]}
         value={tab}
         onChange={setTab}
       />
 
-      {tab === "overview" && <OverviewTab athlete={athlete} />}
-      {tab === "performance" && <PerformanceTab athlete={athlete} peers={athletes} />}
+      {tab === "overview" && <OverviewTab athlete={athlete} entries={athleteEntries} competitions={competitions} navigate={navigate} />}
       {tab === "competitions" && <AthleteCompetitionsTab entries={athleteEntries} competitions={competitions} />}
       {tab === "travel" && <TravelTab athleteId={athlete.id} passports={athletePassports} visas={athleteVisas} />}
-      {tab === "schedule" && <AthleteScheduleTab athleteEvents={athleteEvents} />}
       {tab === "history" && <AthleteHistoryTab />}
 
       {editing && (
@@ -104,7 +98,15 @@ export function AthleteProfile({ athleteId }: { athleteId: string }) {
   );
 }
 
-function OverviewTab({ athlete }: { athlete: Athlete }) {
+function OverviewTab({ athlete, entries, competitions, navigate }: { athlete: Athlete; entries: RaceEntry[]; competitions: Competition[]; navigate: (page: string, arg?: string | null) => void }) {
+  const comp = (id: string) => competitions.find((c) => c.id === id);
+  const today = new Date().toISOString().slice(0, 10);
+  // Real next event: the athlete's soonest race dated today or later.
+  const nextComp = entries
+    .map((e) => comp(e.competitionId))
+    .filter((c): c is Competition => !!c && (c.date || "") >= today)
+    .sort((a, b) => (a.date || "").localeCompare(b.date || ""))[0];
+  const daysUntil = nextComp ? Math.round((+new Date(nextComp.date + "T00:00") - Date.now()) / 86400000) : null;
   return (
     <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 12 }}>
       <div className="col" style={{ gap: 12 }}>
@@ -130,9 +132,9 @@ function OverviewTab({ athlete }: { athlete: Athlete }) {
         </div>
 
         <div className="card">
-          <div className="card-header"><div className="card-title">Season form</div></div>
+          <div className="card-header"><div className="card-title">Season</div></div>
           <div style={{ padding: 18 }}>
-            <FormChart progress={athlete.progress} color={athlete.color} />
+            <SeasonChart entries={entries} competitions={competitions} color={athlete.color} />
           </div>
         </div>
       </div>
@@ -140,12 +142,18 @@ function OverviewTab({ athlete }: { athlete: Athlete }) {
       <div className="col" style={{ gap: 12 }}>
         <div className="card card-pad" style={{ background: athlete.color + "0d", borderColor: athlete.color + "55" }}>
           <div className="text-xs mono fw-700" style={{ color: athlete.color, textTransform: "uppercase", letterSpacing: "0.06em" }}>Next event</div>
-          <div className="display fw-700" style={{ fontSize: 18, marginTop: 6, letterSpacing: "-0.02em" }}>{athlete.nextEvent}</div>
-          <div className="text-sm muted" style={{ marginTop: 4 }}>14 days · entries close in 4 days</div>
-          <div className="row" style={{ marginTop: 14, gap: 6 }}>
-            <button className="btn btn-primary btn-sm">View event</button>
-            <button className="btn btn-secondary btn-sm"><Icon name="calendar" size={13} /> Add to plan</button>
-          </div>
+          {nextComp ? (
+            <>
+              <div className="display fw-700" style={{ fontSize: 18, marginTop: 6, letterSpacing: "-0.02em" }}>{nextComp.name}</div>
+              <div className="text-sm muted" style={{ marginTop: 4 }}>{nextComp.date} · in {daysUntil} day{daysUntil === 1 ? "" : "s"}{nextComp.location ? ` · ${nextComp.location}` : ""}</div>
+              <div className="row" style={{ marginTop: 14, gap: 6 }}>
+                <button className="btn btn-primary btn-sm" onClick={() => navigate("competition-detail", nextComp.id)}>View event</button>
+                <button className="btn btn-secondary btn-sm" onClick={() => navigate("calendar")}><Icon name="calendar" size={13} /> Open plan</button>
+              </div>
+            </>
+          ) : (
+            <div className="text-sm muted" style={{ marginTop: 6 }}>No upcoming events. Enter this athlete into a race and it will show here.</div>
+          )}
         </div>
 
         <div className="card">
@@ -192,112 +200,42 @@ function OverviewTab({ athlete }: { athlete: Athlete }) {
   );
 }
 
-function FormChart({ progress, color }: { progress: number; color: string }) {
-  const data = useMemo(() => {
-    const out: number[] = [];
-    let v = progress - 25 + Math.random() * 5;
-    for (let i = 0; i < 12; i++) {
-      v += (Math.random() - 0.35) * 6;
-      v = Math.max(20, Math.min(100, v));
-      out.push(v);
-    }
-    out[11] = progress;
-    return out;
-  }, [progress]);
-  const W = 720, H = 220, padL = 36, padR = 14, padT = 14, padB = 28;
-  const x = (i: number) => padL + (i / (data.length - 1)) * (W - padL - padR);
-  const y = (v: number) => padT + (1 - (v - 0) / 100) * (H - padT - padB);
-  const path = data.map((v, i) => `${i === 0 ? "M" : "L"} ${x(i)} ${y(v)}`).join(" ");
+// Real season summary: how many races the athlete ran in each month of their
+// season (derived from race entries), rather than a fabricated form line.
+function SeasonChart({ entries, competitions, color }: { entries: RaceEntry[]; competitions: Competition[]; color: string }) {
+  const monthOf = (id: string) => (competitions.find((c) => c.id === id)?.date || "").slice(0, 7);
+  const months = entries.map((e) => monthOf(e.competitionId)).filter(Boolean);
+  if (months.length === 0) {
+    return <div className="text-sm muted" style={{ padding: "6px 2px" }}>No races entered this season yet.</div>;
+  }
+  const uniq = Array.from(new Set(months)).sort();
+  // Continuous month range from the first race to the last.
+  const [fy, fm] = uniq[0].split("-").map(Number);
+  const [ly, lm] = uniq[uniq.length - 1].split("-").map(Number);
+  const range: string[] = [];
+  let y = fy, m = fm;
+  while ((y < ly || (y === ly && m <= lm)) && range.length < 24) {
+    range.push(`${y}-${String(m).padStart(2, "0")}`);
+    m++; if (m > 12) { m = 1; y++; }
+  }
+  const counts = range.map((mo) => months.filter((x) => x === mo).length);
+  const max = Math.max(1, ...counts);
+  const labels = range.map((mo) => new Date(mo + "-01T00:00").toLocaleDateString("en-US", { month: "short" }));
   return (
-    <svg className="chart" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ width: "100%", height: 220 }}>
-      <defs>
-        <linearGradient id="fc1" x1="0" x2="0" y1="0" y2="1">
-          <stop offset="0%" stopColor={color} stopOpacity="0.3" />
-          <stop offset="100%" stopColor={color} stopOpacity="0" />
-        </linearGradient>
-      </defs>
-      {[0, 25, 50, 75, 100].map((v) => (
-        <g key={v}>
-          <line className="grid-line" x1={padL} x2={W - padR} y1={y(v)} y2={y(v)} />
-          <text x={padL - 8} y={y(v) + 3} textAnchor="end">{v}</text>
-        </g>
-      ))}
-      {["W1", "W2", "W3", "W4", "W5", "W6", "W7", "W8", "W9", "W10", "W11", "Now"].map((m, i) => (
-        <text key={i} x={x(i)} y={H - 10} textAnchor="middle">{m}</text>
-      ))}
-      <path d={`${path} L ${x(data.length - 1)} ${H - padB} L ${padL} ${H - padB} Z`} fill="url(#fc1)" />
-      <path d={path} fill="none" stroke={color} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
-      {data.map((v, i) => (
-        <circle key={i} cx={x(i)} cy={y(v)} r={i === data.length - 1 ? 5 : 3} fill={i === data.length - 1 ? color : "var(--bg-1)"} stroke={color} strokeWidth="2" />
-      ))}
-    </svg>
-  );
-}
-
-function PerformanceTab({ athlete, peers }: { athlete: Athlete; peers: Athlete[] }) {
-  const compare = peers.filter((a) => a.category === athlete.category).slice(0, 4);
-  return (
-    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-      <div className="card">
-        <div className="card-header"><div className="card-title">Performance vs squad average</div></div>
-        <div style={{ padding: 22 }}><RadarChart athlete={athlete} /></div>
+    <div>
+      <div className="row" style={{ alignItems: "flex-end", gap: 8, height: 150 }}>
+        {range.map((mo, i) => (
+          <div key={mo} className="col" style={{ flex: 1, alignItems: "center", gap: 6, justifyContent: "flex-end", height: "100%" }}>
+            <div className="text-xs mono fw-700" style={{ color, minHeight: 14 }}>{counts[i] || ""}</div>
+            <div style={{ width: "60%", maxWidth: 40, height: `${(counts[i] / max) * 100}%`, minHeight: counts[i] ? 4 : 0, background: color, borderRadius: 4 }} />
+            <div className="text-xs muted">{labels[i]}</div>
+          </div>
+        ))}
       </div>
-      <div className="card">
-        <div className="card-header"><div className="card-title">Compare with peers</div></div>
-        <div style={{ padding: "8px 0" }}>
-          {compare.map((a) => (
-            <div key={a.id} className="row" style={{ padding: "10px 18px", gap: 12 }}>
-              <Avatar name={a.first + " " + a.last} color={a.color} size="sm" />
-              <div style={{ flex: 1 }}>
-                <div className="fw-600">{a.first} {a.last}</div>
-                <div className="text-xs muted">{a.specialty}</div>
-              </div>
-              <div className="display fw-700 mono" style={{ fontSize: 18, color: a.id === athlete.id ? "var(--accent)" : "var(--fg-1)", letterSpacing: "-0.02em" }}>{a.progress}</div>
-            </div>
-          ))}
-        </div>
+      <div className="text-xs muted" style={{ marginTop: 10, textAlign: "center" }}>
+        {months.length} race{months.length === 1 ? "" : "s"} across {uniq.length} month{uniq.length === 1 ? "" : "s"}
       </div>
     </div>
-  );
-}
-
-function RadarChart({ athlete }: { athlete: Athlete }) {
-  const axes = [
-    { k: "Speed", v: athlete.progress, avg: 65 },
-    { k: "Endurance", v: athlete.progress - 8, avg: 70 },
-    { k: "Strength", v: athlete.progress + 5, avg: 60 },
-    { k: "Technique", v: athlete.progress + 2, avg: 72 },
-    { k: "Mental", v: athlete.progress - 4, avg: 64 },
-    { k: "Recovery", v: athlete.progress + 6, avg: 68 },
-  ];
-  const W = 360, H = 340;
-  const cx = W / 2, cy = H / 2;
-  const R = 110;
-  const angles = axes.map((_, i) => (i / axes.length) * Math.PI * 2 - Math.PI / 2);
-  const point = (val: number, i: number): [number, number] => {
-    const r = (val / 100) * R;
-    return [cx + Math.cos(angles[i]) * r, cy + Math.sin(angles[i]) * r];
-  };
-  const poly = (vals: number[]) => vals.map((v, i) => point(v, i).join(",")).join(" ");
-  return (
-    <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%" }}>
-      {[25, 50, 75, 100].map((p) => (
-        <polygon key={p} fill="none" stroke="var(--border-1)" strokeWidth="1" points={poly(axes.map(() => p))} />
-      ))}
-      {axes.map((a, i) => (
-        <line key={i} x1={cx} y1={cy} x2={point(100, i)[0]} y2={point(100, i)[1]} stroke="var(--border-1)" />
-      ))}
-      <polygon fill="rgba(245, 177, 76, 0.15)" stroke="#f5b14c" strokeWidth="1.5" strokeDasharray="3 3" points={poly(axes.map((a) => a.avg))} />
-      <polygon fill={athlete.color + "33"} stroke={athlete.color} strokeWidth="2" points={poly(axes.map((a) => a.v))} />
-      {axes.map((a, i) => {
-        const p = point(115, i);
-        return (
-          <g key={i}>
-            <text x={p[0]} y={p[1]} textAnchor="middle" dy="4" style={{ font: "600 11px var(--font-ui)", fill: "var(--fg-2)" }}>{a.k}</text>
-          </g>
-        );
-      })}
-    </svg>
   );
 }
 
@@ -338,31 +276,6 @@ function AthleteCompetitionsTab({ entries, competitions }: { entries: RaceEntry[
             })}
           </tbody>
         </table>
-      </div>
-    </div>
-  );
-}
-
-
-function AthleteScheduleTab({ athleteEvents }: { athleteEvents: CalendarEvent[] }) {
-  return (
-    <div className="card">
-      <div className="card-header"><div className="card-title">Upcoming schedule</div></div>
-      <div style={{ padding: "8px 0" }}>
-        {athleteEvents.length === 0 ? (
-          <EmptyState icon="calendar" title="Nothing scheduled" description="Add a training session, competition or travel to this athlete's calendar." />
-        ) : (
-          athleteEvents.map((e) => (
-            <div key={e.id} className="row" style={{ padding: "12px 18px", borderBottom: "1px solid var(--border-1)", gap: 14 }}>
-              <DateStack date={e.date} />
-              <div style={{ flex: 1 }}>
-                <div className="fw-600">{e.title}</div>
-                <div className="text-sm muted">{formatHour(e.startHour)} · {e.location}</div>
-              </div>
-              <EventTypeBadge category={e.category} />
-            </div>
-          ))
-        )}
       </div>
     </div>
   );

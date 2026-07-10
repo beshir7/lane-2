@@ -103,6 +103,27 @@ export function PrintMenu() {
       { key: "roster", labelKey: "print.roster", run: () => tableDoc("athlete-roster", t("print.roster"), `${roster.length}`, ["Athlete", "Nationality", "Date of birth", "Discipline", "Coach"], roster.map((a) => [...athleteRow(a), a.coach || ""])) },
       { key: "athletesWithSponsor", labelKey: "print.athletesWithSponsor", run: () => tableDoc("athletes-with-sponsor", t("print.athletesWithSponsor"), "", ["Athlete", "Sponsor", "Nationality"], roster.filter((a) => a.sponsor).map((a) => [`${a.last}, ${a.first}`, a.sponsor || "", a.nationality || ""])) },
       { key: "marathoners", labelKey: "print.marathoners", run: () => tableDoc("marathoners", t("print.marathoners"), "", ["Athlete", "Nationality", "Discipline"], roster.filter((a) => /marathon/i.test(a.specialty) || (a.disciplines || []).some((d) => /marathon/i.test(d))).map((a) => [`${a.last}, ${a.first}`, a.nationality || "", a.specialty || ""])) },
+      // Personal bests (photo_2 concept): one row per PB mark an athlete holds.
+      {
+        key: "personalBests", labelKey: "print.personalBests", run: () => {
+          const rows = roster.flatMap((a) => Object.entries(a.pb || {})
+            .filter(([, mark]) => mark)
+            .map(([disc, mark]) => [`${a.last}, ${a.first}${a.contract ? ` (${a.contract})` : ""}`, a.nationality || "", disc, mark]));
+          tableDoc("personal-bests", t("print.personalBests"), `${rows.length}`, ["Athlete", "Nationality", "Discipline", "Personal best"], rows);
+        },
+      },
+      // Men marathon runners ranked by marathon PB (photo_2).
+      {
+        key: "menMarathon", labelKey: "print.menMarathon", run: () => {
+          const marOf = (a: (typeof athletes)[number]) => { const k = Object.keys(a.pb || {}).find((d) => /marathon/i.test(d)); return k ? a.pb[k] : ""; };
+          const rows = roster
+            .filter((a) => a.gender === "M" && (marOf(a) || /marathon/i.test(a.specialty)))
+            .map((a) => ({ a, mark: marOf(a) }))
+            .sort((x, y) => (x.mark || "~").localeCompare(y.mark || "~"))
+            .map(({ a, mark }, i) => [String(i + 1), `${a.last}, ${a.first}${a.contract ? ` (${a.contract})` : ""}`, a.nationality || "", mark || "—"]);
+          tableDoc("men-marathon-runners", t("print.menMarathon"), `${rows.length}`, ["#", "Athlete", "Nationality", "Marathon PB"], rows);
+        },
+      },
       { key: "track", labelKey: "print.track", run: () => tableDoc("track-athletes", t("print.track"), "", ["Athlete", "Nationality", "Discipline"], roster.filter((a) => !/marathon|road|cross/i.test(a.specialty)).map((a) => [`${a.last}, ${a.first}`, a.nationality || "", a.specialty || ""])) },
       {
         key: "athleteList", labelKey: "print.athleteList", children: [

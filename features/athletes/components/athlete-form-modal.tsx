@@ -163,7 +163,7 @@ export function AthleteFormModal({
           </div>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "2fr 2fr 1fr 1fr 1fr", gap: 10 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
           <div className="field">
             <label className="field-label">{t("athlete.firstName")}</label>
             <input className="input" value={form.first} onChange={(e) => update("first", e.target.value)} aria-invalid={!!errors.first} />
@@ -174,11 +174,14 @@ export function AthleteFormModal({
             <input className="input" value={form.last} onChange={(e) => update("last", e.target.value)} aria-invalid={!!errors.last} />
             {errors.last && <span className="field-error"><Icon name="alert" size={11} /> {errors.last}</span>}
           </div>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
           <div className="field">
             <label className="field-label">{t("athlete.height")}</label>
-            <div className="input-group" style={{ padding: 0 }}>
-              <input type="number" className="input" value={form.height || ""} onChange={(e) => update("height", e.target.value ? Number(e.target.value) : undefined)} />
-              <select className="input" style={{ width: 66, flex: "none", borderLeft: "1px solid var(--border-1)" }} value={form.heightUnit || "cm"} onChange={(e) => update("heightUnit", e.target.value)}>
+            <div className="row" style={{ gap: 6 }}>
+              <input type="number" className="input" style={{ flex: 1, minWidth: 0 }} placeholder="0" value={form.height || ""} onChange={(e) => update("height", e.target.value ? Number(e.target.value) : undefined)} />
+              <select className="input" style={{ width: 72, flex: "none" }} value={form.heightUnit || "cm"} onChange={(e) => update("heightUnit", e.target.value)}>
                 <option value="cm">cm</option>
                 <option value="ft">ft</option>
               </select>
@@ -186,9 +189,9 @@ export function AthleteFormModal({
           </div>
           <div className="field">
             <label className="field-label">{t("athlete.weight")}</label>
-            <div className="input-group" style={{ padding: 0 }}>
-              <input type="number" className="input" value={form.weight || ""} onChange={(e) => update("weight", e.target.value ? Number(e.target.value) : undefined)} />
-              <select className="input" style={{ width: 66, flex: "none", borderLeft: "1px solid var(--border-1)" }} value={form.weightUnit || "kg"} onChange={(e) => update("weightUnit", e.target.value)}>
+            <div className="row" style={{ gap: 6 }}>
+              <input type="number" className="input" style={{ flex: 1, minWidth: 0 }} placeholder="0" value={form.weight || ""} onChange={(e) => update("weight", e.target.value ? Number(e.target.value) : undefined)} />
+              <select className="input" style={{ width: 72, flex: "none" }} value={form.weightUnit || "kg"} onChange={(e) => update("weightUnit", e.target.value)}>
                 <option value="kg">kg</option>
                 <option value="lb">lb</option>
               </select>

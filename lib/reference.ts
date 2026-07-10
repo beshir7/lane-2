@@ -34,11 +34,8 @@ export const DOC_CATEGORIES: DocCategory[] = [
   { id: "passport", label: "Passports", icon: "globe" },
   { id: "visa", label: "Visas", icon: "flag" },
   { id: "medical", label: "Medical records", icon: "shield" },
-  { id: "insurance", label: "Insurance", icon: "shield" },
   { id: "contract", label: "Contracts", icon: "fileText" },
-  { id: "competition", label: "Competition", icon: "trophy" },
   { id: "media", label: "Media", icon: "image" },
-  { id: "plan", label: "Plans & playbooks", icon: "layers" },
 ];
 
 export const ROLES: Role[] = [

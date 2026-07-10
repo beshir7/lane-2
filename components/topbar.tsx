@@ -70,16 +70,12 @@ export function Topbar() {
           <Icon name={tweaks.theme === "dark" ? "sun" : "moon"} size={16} />
         </button>
 
-        <button className="icon-btn" title="Help">
-          <Icon name="helpCircle" size={16} />
-        </button>
-
         <button className="icon-btn" onClick={() => navigate("notifications")} title="Notifications">
           <Icon name="bell" size={16} />
           {unreadCount > 0 && <span className="icon-btn-dot" />}
         </button>
 
-        <button className="avatar-btn" title="Account">
+        <button className="avatar-btn" onClick={() => navigate("settings", "profile")} title="Your profile">
           <Avatar name="Lena Andersen" color="#5b6ef5" size="sm" dot="online" />
         </button>
       </div>

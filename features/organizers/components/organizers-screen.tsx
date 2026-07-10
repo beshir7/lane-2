@@ -8,10 +8,10 @@ import { Icon } from "@/components/icon";
 import { Avatar, EmptyState, Modal } from "@/components/primitives";
 import { useLane } from "@/components/lane-provider";
 import { downloadCsv } from "@/utils";
-import type { Organizer } from "@/lib/types";
+import type { Competition, Organizer } from "@/lib/types";
 
 export function OrganizersScreen() {
-  const { organizers, competitions, createOrganizer, updateOrganizer, deleteOrganizer, t } = useLane();
+  const { organizers, competitions, createOrganizer, updateOrganizer, deleteOrganizer, updateCompetition, t } = useLane();
   const [search, setSearch] = useState("");
   const [modal, setModal] = useState<Organizer | "new" | null>(null);
 
@@ -75,10 +75,20 @@ export function OrganizersScreen() {
       {modal && (
         <OrganizerModal
           organizer={modal === "new" ? undefined : modal}
+          competitions={competitions}
           onClose={() => setModal(null)}
-          onSave={(data) => {
-            if (modal === "new") createOrganizer(data);
-            else updateOrganizer(modal.id, data);
+          onSave={(data, raceIds) => {
+            // Create/update the organizer, then reconcile which races point at it:
+            // link the chosen ones, unlink any it used to organize but no longer.
+            const id = modal === "new" ? "o" + Math.random().toString(36).slice(2, 8) : modal.id;
+            if (modal === "new") createOrganizer({ ...data, id });
+            else updateOrganizer(id, data);
+            const chosen = new Set(raceIds);
+            for (const c of competitions) {
+              const wasMine = c.organizerId === id;
+              if (chosen.has(c.id) && !wasMine) updateCompetition(c.id, { organizerId: id });
+              else if (!chosen.has(c.id) && wasMine) updateCompetition(c.id, { organizerId: null });
+            }
             setModal(null);
           }}
         />
@@ -87,15 +97,35 @@ export function OrganizersScreen() {
   );
 }
 
-function OrganizerModal({ organizer, onClose, onSave }: { organizer?: Organizer; onClose: () => void; onSave: (d: Partial<Organizer>) => void }) {
+function OrganizerModal({ organizer, competitions, onClose, onSave }: { organizer?: Organizer; competitions: Competition[]; onClose: () => void; onSave: (d: Partial<Organizer>, raceIds: string[]) => void }) {
   const { t } = useLane();
-  const [form, setForm] = useState<Partial<Organizer>>(organizer || { firstName: "", lastName: "", name: "", nation: "", phone: "", email: "" });
+  // Seeded organizers only carry a display `name` (no first/last parts), so
+  // derive the fields from it — first token = surname — so the form is filled
+  // and re-saving reproduces the same name.
+  const [form, setForm] = useState<Partial<Organizer>>(() => {
+    if (!organizer) return { firstName: "", lastName: "", name: "", nation: "", phone: "", email: "" };
+    const parts = (organizer.name || "").trim().split(/\s+/);
+    return {
+      ...organizer,
+      lastName: organizer.lastName || parts[0] || "",
+      firstName: organizer.firstName || parts.slice(1).join(" ") || "",
+    };
+  });
+  // Races this organizer runs — editable; starts from whatever points at it today.
+  const [raceIds, setRaceIds] = useState<Set<string>>(() => new Set(competitions.filter((c) => organizer && c.organizerId === organizer.id).map((c) => c.id)));
+  const [raceSearch, setRaceSearch] = useState("");
   const set = (k: keyof Organizer, v: string) => setForm({ ...form, [k]: v });
+  const toggleRace = (id: string) => setRaceIds((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const save = () => {
     // Keep the display name as "Lastname Firstname" when the parts are given.
     const name = [form.lastName, form.firstName].filter(Boolean).join(" ").trim() || form.name || "";
-    onSave({ ...form, name });
+    onSave({ ...form, name }, [...raceIds]);
   };
+
+  const raceList = competitions
+    .filter((c) => !raceSearch || `${c.name} ${c.location} ${c.country}`.toLowerCase().includes(raceSearch.toLowerCase()))
+    .sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+
   return (
     <Modal open onClose={onClose} title={organizer ? t("common.edit") : t("org.new")} footer={<><button className="btn btn-secondary" onClick={onClose}>{t("common.cancel")}</button><button className="btn btn-primary" onClick={save}>{t("common.save")}</button></>}>
       <div className="col" style={{ gap: 12 }}>
@@ -108,6 +138,29 @@ function OrganizerModal({ organizer, onClose, onSave }: { organizer?: Organizer;
           <div className="field"><label className="field-label">{t("org.nation")}</label><input className="input" value={form.nation || ""} onChange={(e) => set("nation", e.target.value)} /></div>
         </div>
         <div className="field"><label className="field-label">{t("org.email")}</label><input className="input" type="email" value={form.email || ""} onChange={(e) => set("email", e.target.value)} /></div>
+
+        <div className="field">
+          <label className="field-label">{t("nav.races")} <span className="text-xs muted" style={{ fontWeight: 400 }}>· {raceIds.size} selected</span></label>
+          <div className="card" style={{ overflow: "hidden" }}>
+            <div style={{ padding: 8, borderBottom: "1px solid var(--border-1)" }}>
+              <div className="input-group">
+                <Icon name="search" size={13} />
+                <input className="input" placeholder={t("common.search")} value={raceSearch} onChange={(e) => setRaceSearch(e.target.value)} />
+              </div>
+            </div>
+            <div style={{ maxHeight: 200, overflowY: "auto", padding: 4 }}>
+              {raceList.length === 0 ? (
+                <div className="text-sm muted" style={{ padding: 12 }}>No races.</div>
+              ) : raceList.map((c) => (
+                <label key={c.id} className="row" style={{ gap: 8, padding: "6px 8px", cursor: "pointer", borderRadius: 6, background: raceIds.has(c.id) ? "var(--accent-soft)" : "transparent" }}>
+                  <input type="checkbox" checked={raceIds.has(c.id)} onChange={() => toggleRace(c.id)} />
+                  <span className="fw-600 text-sm" style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.name}</span>
+                  <span className="text-xs muted mono">{c.date}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+        </div>
       </div>
     </Modal>
   );
