@@ -7,10 +7,14 @@ import { Icon } from "@/components/icon";
 import { Avatar, Drawer, EmptyState, Segmented, Tag } from "@/components/primitives";
 import { EventTypeBadge, FilterDropdown, formatHour } from "@/components/shared";
 import { useLane } from "@/components/lane-provider";
-import { EntriesMatrixView } from "./entries-matrix";
 import type { Athlete, CalendarEvent, CalendarCategory } from "@/lib/types";
 
-type CalView = "plan" | "month" | "week" | "day";
+type CalView = "month" | "week" | "day";
+
+// A calendar item is either a real editable event or a read-only item derived
+// from a race (competition). Race items carry the entered athletes and link to
+// the race detail instead of opening the event editor.
+type CalItem = CalendarEvent & { isRace?: boolean; raceId?: string };
 
 const getWeekStart = (d: Date) => {
   const out = new Date(d);
@@ -25,9 +29,8 @@ const catBg = (cat: string) =>
   cat === "competition" ? "rgba(245, 91, 110, 0.13)" : cat === "training" ? "rgba(34, 211, 160, 0.13)" : cat === "travel" ? "rgba(245, 177, 76, 0.13)" : "rgba(107, 125, 255, 0.16)";
 
 export function CalendarScreen() {
-  const { events, athletes, updateEvent, createEvent, deleteEvent } = useLane();
-  // Default to the race-planning matrix (DB-backed); switch to the calendar grids as needed.
-  const [view, setView] = useState<CalView>("plan");
+  const { events, athletes, competitions, entries, updateEvent, createEvent, deleteEvent, navigate } = useLane();
+  const [view, setView] = useState<CalView>("month");
   const isTimeView = view === "month" || view === "week" || view === "day";
   const [cursor, setCursor] = useState(new Date(2026, 4, 21));
   const [filterCat, setFilterCat] = useState<Set<string>>(new Set(["competition", "training", "travel", "meeting"]));
@@ -35,11 +38,42 @@ export function CalendarScreen() {
   const [editEvent, setEditEvent] = useState<CalendarEvent | null>(null);
   const [newOnDate, setNewOnDate] = useState<any>(null);
 
-  const filtered = events.filter((e) => {
-    if (!filterCat.has(e.category)) return false;
-    if (filterAthlete !== "all" && !e.athletes.includes(filterAthlete)) return false;
-    return true;
-  });
+  // Every dated race becomes a calendar item on its day, carrying the athletes
+  // entered in it (from race entries) so the calendar reflects Races + Athletes.
+  const raceEvents = useMemo<CalItem[]>(
+    () =>
+      competitions
+        .filter((c) => c.date)
+        .map((c) => ({
+          id: `race-${c.id}`,
+          raceId: c.id,
+          isRace: true,
+          title: c.name,
+          category: "competition" as CalendarCategory,
+          date: c.date,
+          startHour: 9,
+          duration: 2,
+          athletes: entries.filter((e) => e.competitionId === c.id).map((e) => e.athleteId),
+          location: c.location || "",
+        })),
+    [competitions, entries]
+  );
+
+  const filtered = useMemo<CalItem[]>(
+    () =>
+      [...events, ...raceEvents].filter((e) => {
+        if (!filterCat.has(e.category)) return false;
+        if (filterAthlete !== "all" && !e.athletes.includes(filterAthlete)) return false;
+        return true;
+      }),
+    [events, raceEvents, filterCat, filterAthlete]
+  );
+
+  // Races link to the race detail; real events open the editor.
+  const openItem = (ev: CalItem) => {
+    if (ev.isRace && ev.raceId) navigate("competition-detail", ev.raceId);
+    else setEditEvent(ev);
+  };
 
   const moveCursor = (delta: number) => {
     const next = new Date(cursor);
@@ -58,7 +92,11 @@ export function CalendarScreen() {
       ? `Week of ${getWeekStart(cursor).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`
       : cursor.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
 
-  const moveEvent = (eventId: string, newDate: string) => updateEvent(eventId, { date: newDate });
+  // Only real events can be dragged to reschedule; race items are read-only.
+  const moveEvent = (eventId: string, newDate: string) => {
+    if (eventId.startsWith("race-")) return;
+    updateEvent(eventId, { date: newDate });
+  };
 
   return (
     <div className="page">
@@ -100,7 +138,6 @@ export function CalendarScreen() {
 
           <Segmented
             options={[
-              { value: "plan", label: "Plan" },
               { value: "month", label: "Month" },
               { value: "week", label: "Week" },
               { value: "day", label: "Day" },
@@ -112,10 +149,9 @@ export function CalendarScreen() {
       </div>
 
       <div className="card" style={{ padding: 16, overflow: "auto" }}>
-        {view === "plan" && <EntriesMatrixView />}
-        {view === "month" && <MonthView cursor={cursor} events={filtered} onMoveEvent={moveEvent} onClickDate={(d) => setNewOnDate(d)} onClickEvent={setEditEvent} />}
-        {view === "week" && <WeekView cursor={cursor} events={filtered} onMoveEvent={moveEvent} onClickEvent={setEditEvent} onClickSlot={(d, h) => setNewOnDate({ date: d, startHour: h })} />}
-        {view === "day" && <DayView cursor={cursor} events={filtered} onClickEvent={setEditEvent} onClickSlot={(d, h) => setNewOnDate({ date: d, startHour: h })} />}
+        {view === "month" && <MonthView cursor={cursor} events={filtered} onMoveEvent={moveEvent} onClickDate={(d) => setNewOnDate(d)} onClickEvent={openItem} />}
+        {view === "week" && <WeekView cursor={cursor} events={filtered} onMoveEvent={moveEvent} onClickEvent={openItem} onClickSlot={(d, h) => setNewOnDate({ date: d, startHour: h })} />}
+        {view === "day" && <DayView cursor={cursor} events={filtered} athletes={athletes} onClickEvent={openItem} onClickSlot={(d, h) => setNewOnDate({ date: d, startHour: h })} />}
       </div>
 
       {editEvent && (
@@ -153,7 +189,7 @@ function CategoryFilter({ cat, label, color, filterCat, setFilterCat }: { cat: s
   );
 }
 
-function MonthView({ cursor, events, onMoveEvent, onClickDate, onClickEvent }: { cursor: Date; events: CalendarEvent[]; onMoveEvent: (id: string, d: string) => void; onClickDate: (d: Date) => void; onClickEvent: (e: CalendarEvent) => void }) {
+function MonthView({ cursor, events, onMoveEvent, onClickDate, onClickEvent }: { cursor: Date; events: CalItem[]; onMoveEvent: (id: string, d: string) => void; onClickDate: (d: Date) => void; onClickEvent: (e: CalItem) => void }) {
   const year = cursor.getFullYear();
   const month = cursor.getMonth();
   const firstDay = new Date(year, month, 1);
@@ -197,12 +233,12 @@ function MonthView({ cursor, events, onMoveEvent, onClickDate, onClickEvent }: {
               <div
                 key={ev.id}
                 className={`cal-event cat-${ev.category}`}
-                draggable
+                draggable={!ev.isRace}
                 onDragStart={(e) => e.dataTransfer.setData("text/eventId", ev.id)}
                 onClick={(e) => { e.stopPropagation(); onClickEvent(ev); }}
-                title={`${ev.title} · ${formatHour(ev.startHour)}`}
+                title={ev.isRace ? `${ev.title} · ${ev.athletes.length} entered` : `${ev.title} · ${formatHour(ev.startHour)}`}
               >
-                <span className="mono" style={{ fontSize: 9, opacity: 0.85 }}>{formatHour(ev.startHour)}</span>
+                <span className="mono" style={{ fontSize: 9, opacity: 0.85 }}>{ev.isRace ? <Icon name="trophy" size={9} /> : formatHour(ev.startHour)}</span>
                 <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ev.title}</span>
               </div>
             ))}
@@ -214,7 +250,7 @@ function MonthView({ cursor, events, onMoveEvent, onClickDate, onClickEvent }: {
   );
 }
 
-function WeekView({ cursor, events, onMoveEvent, onClickEvent, onClickSlot }: { cursor: Date; events: CalendarEvent[]; onMoveEvent: (id: string, d: string) => void; onClickEvent: (e: CalendarEvent) => void; onClickSlot: (d: string, h: number) => void }) {
+function WeekView({ cursor, events, onMoveEvent, onClickEvent, onClickSlot }: { cursor: Date; events: CalItem[]; onMoveEvent: (id: string, d: string) => void; onClickEvent: (e: CalItem) => void; onClickSlot: (d: string, h: number) => void }) {
   const weekStart = getWeekStart(cursor);
   const days = [...Array(7)].map((_, i) => {
     const d = new Date(weekStart);
@@ -268,12 +304,12 @@ function WeekView({ cursor, events, onMoveEvent, onClickEvent, onClickSlot }: { 
                   <div
                     key={ev.id}
                     className="cal-week-event"
-                    draggable
+                    draggable={!ev.isRace}
                     onDragStart={(e) => e.dataTransfer.setData("text/eventId", ev.id)}
                     onClick={(e) => { e.stopPropagation(); onClickEvent(ev); }}
                     style={{ top, height, color: catColor(ev.category), background: catBg(ev.category), borderLeftColor: catColor(ev.category) }}
                   >
-                    <div className="mono text-xs" style={{ opacity: 0.8 }}>{formatHour(ev.startHour)}</div>
+                    <div className="mono text-xs" style={{ opacity: 0.8 }}>{ev.isRace ? `${ev.athletes.length} entered` : formatHour(ev.startHour)}</div>
                     <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ev.title}</div>
                   </div>
                 );
@@ -286,8 +322,9 @@ function WeekView({ cursor, events, onMoveEvent, onClickEvent, onClickSlot }: { 
   );
 }
 
-function DayView({ cursor, events, onClickEvent, onClickSlot }: { cursor: Date; events: CalendarEvent[]; onClickEvent: (e: CalendarEvent) => void; onClickSlot: (d: string, h: number) => void }) {
+function DayView({ cursor, events, athletes, onClickEvent, onClickSlot }: { cursor: Date; events: CalItem[]; athletes: Athlete[]; onClickEvent: (e: CalItem) => void; onClickSlot: (d: string, h: number) => void }) {
   const dStr = formatDate(cursor);
+  const byId = new Map(athletes.map((a) => [a.id, a]));
   const hours = [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21];
   const dayEvents = events.filter((ev) => ev.date === dStr).sort((a, b) => a.startHour - b.startHour);
 
@@ -332,16 +369,25 @@ function DayView({ cursor, events, onClickEvent, onClickSlot }: { cursor: Date; 
             {dayEvents.length === 0 ? (
               <EmptyState icon="calendar" title="Nothing scheduled" />
             ) : (
-              dayEvents.map((ev) => (
-                <button key={ev.id} className="row" style={{ width: "100%", padding: "10px 18px", gap: 12, textAlign: "left" }} onClick={() => onClickEvent(ev)}>
-                  <div className="mono text-sm fw-600" style={{ width: 50, color: "var(--accent)" }}>{formatHour(ev.startHour)}</div>
-                  <div style={{ flex: 1 }}>
-                    <div className="fw-600 text-md">{ev.title}</div>
-                    <div className="text-xs muted">{ev.duration}h · {ev.location}</div>
-                  </div>
-                  <EventTypeBadge category={ev.category} />
-                </button>
-              ))
+              dayEvents.map((ev) => {
+                const roster = ev.athletes.map((id) => byId.get(id)).filter(Boolean) as Athlete[];
+                return (
+                  <button key={ev.id} className="row" style={{ width: "100%", padding: "10px 18px", gap: 12, textAlign: "left" }} onClick={() => onClickEvent(ev)}>
+                    <div className="mono text-sm fw-600" style={{ width: 50, color: "var(--accent)" }}>{ev.isRace ? <Icon name="trophy" size={14} /> : formatHour(ev.startHour)}</div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div className="fw-600 text-md">{ev.title}</div>
+                      <div className="text-xs muted">{ev.isRace ? `${roster.length} athlete${roster.length === 1 ? "" : "s"} entered${ev.location ? ` · ${ev.location}` : ""}` : `${ev.duration}h · ${ev.location}`}</div>
+                      {roster.length > 0 && (
+                        <div className="row" style={{ gap: 4, marginTop: 6, flexWrap: "wrap" }}>
+                          {roster.slice(0, 6).map((a) => <Avatar key={a.id} name={`${a.first} ${a.last}`} color={a.color} size="xs" />)}
+                          {roster.length > 6 && <span className="text-xs muted">+{roster.length - 6}</span>}
+                        </div>
+                      )}
+                    </div>
+                    <EventTypeBadge category={ev.category} />
+                  </button>
+                );
+              })
             )}
           </div>
         </div>

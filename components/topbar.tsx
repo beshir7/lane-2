@@ -25,7 +25,7 @@ const SEG_KEY: Record<string, string> = {
 };
 
 export function Topbar() {
-  const { athletes, competitions, unreadCount, tweaks, setTweak, setCmdOpen, navigate, t } = useLane();
+  const { athletes, competitions, unreadCount, tweaks, setTweak, setCmdOpen, navigate, t, currentUser } = useLane();
   const pathname = usePathname();
   const params = useParams<{ id?: string }>();
 
@@ -76,7 +76,7 @@ export function Topbar() {
         </button>
 
         <button className="avatar-btn" onClick={() => navigate("settings", "profile")} title="Your profile">
-          <Avatar name="Lena Andersen" color="#5b6ef5" size="sm" dot="online" />
+          <Avatar name={currentUser?.name || "Account"} color={currentUser?.color || "#5b6ef5"} size="sm" dot="online" />
         </button>
       </div>
     </header>
