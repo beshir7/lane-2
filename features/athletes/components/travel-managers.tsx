@@ -11,6 +11,7 @@ import { Icon } from "@/components/icon";
 import { Modal } from "@/components/primitives";
 import { useLane } from "@/components/lane-provider";
 import type { Passport, Visa } from "@/lib/types";
+import { scanTravelDoc, type ScanResult } from "@/features/documents/travel-ocr";
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -21,16 +22,32 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-/** Scan / photo picker — stores the chosen image as a data: URL on the record. */
-function PhotoField({ label, photo, onChange }: { label: string; photo?: string; onChange: (dataUrl: string | undefined) => void }) {
+/** Scan / photo picker — stores the chosen image as a data: URL on the record.
+ *  When `onExtract` is given, the same picked image is OCR'd locally (never
+ *  leaves the browser) and the parsed passport/visa fields are handed back. */
+function PhotoField({ label, photo, onChange, onExtract }: { label: string; photo?: string; onChange: (dataUrl: string | undefined) => void; onExtract?: (r: ScanResult) => void }) {
   const { t } = useLane();
   const inputRef = React.useRef<HTMLInputElement>(null);
+  const [scanning, setScanning] = useState(false);
+  const [status, setStatus] = useState<{ ok: boolean; message: string } | null>(null);
+
   const pick = (file?: File) => {
     if (!file) return;
     const reader = new FileReader();
     reader.onload = () => onChange(typeof reader.result === "string" ? reader.result : undefined);
     reader.readAsDataURL(file);
+    if (onExtract) runScan(file);
   };
+
+  const runScan = async (file: File) => {
+    setScanning(true);
+    setStatus(null);
+    const result = await scanTravelDoc(file);
+    setScanning(false);
+    setStatus({ ok: result.ok, message: result.message });
+    if (result.ok) onExtract?.(result);
+  };
+
   return (
     <div className="field">
       <label className="field-label">{label}</label>
@@ -50,13 +67,22 @@ function PhotoField({ label, photo, onChange }: { label: string; photo?: string;
           )}
         </div>
         <div className="col" style={{ gap: 6 }}>
-          <button type="button" className="btn btn-secondary btn-sm" onClick={() => inputRef.current?.click()}>
+          <button type="button" className="btn btn-secondary btn-sm" onClick={() => inputRef.current?.click()} disabled={scanning}>
             <Icon name="upload" size={13} /> {photo ? t("common.replace") : t("common.upload")}
           </button>
           {photo && (
-            <button type="button" className="btn btn-ghost btn-sm" style={{ color: "var(--danger)" }} onClick={() => onChange(undefined)}>
+            <button type="button" className="btn btn-ghost btn-sm" style={{ color: "var(--danger)" }} onClick={() => { onChange(undefined); setStatus(null); }} disabled={scanning}>
               <Icon name="trash" size={13} /> {t("common.remove")}
             </button>
+          )}
+          {onExtract && (
+            <span className="text-xs" style={{ color: scanning ? "var(--fg-3)" : status ? (status.ok ? "var(--success)" : "var(--warning)") : "var(--fg-3)", maxWidth: 220 }}>
+              {scanning
+                ? "Reading document…"
+                : status
+                ? status.message
+                : "Upload a clear photo of the passport photo-page (or MRZ visa) to auto-fill."}
+            </span>
           )}
         </div>
         <input ref={inputRef} type="file" accept="image/*" style={{ display: "none" }} onChange={(e) => pick(e.target.files?.[0])} />
@@ -107,7 +133,17 @@ export function PassportManager({ athleteId, onClose }: { athleteId: string; onC
       footer={<ManagerFooter isNew={isNew} onSubmit={submit} onCancel={cancel} onExit={onClose} />}
     >
       <div className="col" style={{ gap: 14 }}>
-        <PhotoField label={t("doc.passportPhoto")} photo={form.photo} onChange={(v) => setForm((f) => ({ ...f, photo: v }))} />
+        <PhotoField
+          label={t("doc.passportPhoto")}
+          photo={form.photo}
+          onChange={(v) => setForm((f) => ({ ...f, photo: v }))}
+          onExtract={(r) => setForm((f) => ({
+            ...f,
+            number: r.fields.documentNumber || f.number,
+            nation: r.fields.nationality || f.nation,
+            expiry: r.fields.expirationDate || f.expiry,
+          }))}
+        />
         <div className="divider" />
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
           <Field label={t("doc.number")}><input className="input" value={form.number || ""} onChange={(e) => set("number", e.target.value)} /></Field>
@@ -149,7 +185,12 @@ export function VisaManager({ athleteId, onClose }: { athleteId: string; onClose
       footer={<ManagerFooter isNew={isNew} onSubmit={submit} onCancel={cancel} onExit={onClose} />}
     >
       <div className="col" style={{ gap: 14 }}>
-        <PhotoField label={t("doc.visaPhoto")} photo={form.photo} onChange={(v) => setForm((f) => ({ ...f, photo: v }))} />
+        <PhotoField
+          label={t("doc.visaPhoto")}
+          photo={form.photo}
+          onChange={(v) => setForm((f) => ({ ...f, photo: v }))}
+          onExtract={(r) => setForm((f) => ({ ...f, validTo: r.fields.expirationDate || f.validTo }))}
+        />
         <div className="divider" />
         {/* Optional details — kept only in case a copy of the visa can't live in the program. */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
