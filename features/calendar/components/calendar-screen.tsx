@@ -7,10 +7,9 @@ import { Icon } from "@/components/icon";
 import { Avatar, Drawer, EmptyState, Segmented, Tag } from "@/components/primitives";
 import { EventTypeBadge, FilterDropdown, formatHour } from "@/components/shared";
 import { useLane } from "@/components/lane-provider";
-import { EntriesMatrixView } from "./entries-matrix";
 import type { Athlete, CalendarEvent, CalendarCategory } from "@/lib/types";
 
-type CalView = "plan" | "month" | "week" | "day";
+type CalView = "month" | "week" | "day";
 
 // A calendar item is either a real editable event or a read-only item derived
 // from a race (competition). Race items carry the entered athletes and link to
@@ -31,8 +30,7 @@ const catBg = (cat: string) =>
 
 export function CalendarScreen() {
   const { events, athletes, competitions, entries, updateEvent, createEvent, deleteEvent, navigate } = useLane();
-  // Default to the race-planning matrix (DB-backed); switch to the calendar grids as needed.
-  const [view, setView] = useState<CalView>("plan");
+  const [view, setView] = useState<CalView>("month");
   const isTimeView = view === "month" || view === "week" || view === "day";
   const [cursor, setCursor] = useState(new Date(2026, 4, 21));
   const [filterCat, setFilterCat] = useState<Set<string>>(new Set(["competition", "training", "travel", "meeting"]));
@@ -140,7 +138,6 @@ export function CalendarScreen() {
 
           <Segmented
             options={[
-              { value: "plan", label: "Plan" },
               { value: "month", label: "Month" },
               { value: "week", label: "Week" },
               { value: "day", label: "Day" },
@@ -152,7 +149,6 @@ export function CalendarScreen() {
       </div>
 
       <div className="card" style={{ padding: 16, overflow: "auto" }}>
-        {view === "plan" && <EntriesMatrixView />}
         {view === "month" && <MonthView cursor={cursor} events={filtered} onMoveEvent={moveEvent} onClickDate={(d) => setNewOnDate(d)} onClickEvent={openItem} />}
         {view === "week" && <WeekView cursor={cursor} events={filtered} onMoveEvent={moveEvent} onClickEvent={openItem} onClickSlot={(d, h) => setNewOnDate({ date: d, startHour: h })} />}
         {view === "day" && <DayView cursor={cursor} events={filtered} athletes={athletes} onClickEvent={openItem} onClickSlot={(d, h) => setNewOnDate({ date: d, startHour: h })} />}
