@@ -79,11 +79,15 @@ export function FilterDropdown({
   value,
   options,
   onChange,
+  align = "left",
 }: {
   label: string;
   value: string;
   options: { v: string; l: string }[];
   onChange: (v: string) => void;
+  // Which edge the menu is anchored to. Use "right" when the control sits at the
+  // right of the screen so the menu doesn't overflow past the viewport.
+  align?: "left" | "right";
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -105,8 +109,9 @@ export function FilterDropdown({
           style={{
             position: "absolute",
             top: "calc(100% + 4px)",
-            left: 0,
-            minWidth: 180,
+            ...(align === "right" ? { right: 0 } : { left: 0 }),
+            minWidth: 160,
+            maxWidth: "min(220px, calc(100vw - 24px))",
             zIndex: 10,
             background: "var(--bg-1)",
             border: "1px solid var(--border-2)",

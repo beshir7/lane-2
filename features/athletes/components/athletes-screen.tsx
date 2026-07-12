@@ -34,7 +34,7 @@ const ordinal = (n: number) => {
 const placeLabel = (pos?: number, note?: string) => (pos ? ordinal(pos) : note && /^(DNF|DNS|DQ)$/i.test(note) ? note.toUpperCase() : "—");
 
 export function AthletesScreen() {
-  const { athletes, entries, competitions, navigate, createAthlete, deleteAthlete, t } = useLane();
+  const { athletes, entries, competitions, navigate, prefetch, createAthlete, deleteAthlete, t } = useLane();
   const push = useToast();
   const [view, setView] = useState<"cards" | "list">("cards");
   const [peekId, setPeekId] = useState<string | null>(null);
@@ -168,7 +168,7 @@ export function AthletesScreen() {
       ) : view === "cards" ? (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 12 }}>
           {filtered.map((a) => (
-            <AthleteCard key={a.id} athlete={a} entries={entries} onPeek={() => setPeekId(a.id)} />
+            <AthleteCard key={a.id} athlete={a} entries={entries} onPeek={() => setPeekId(a.id)} onHover={() => prefetch("athlete-detail", a.id)} />
           ))}
         </div>
       ) : (
@@ -189,7 +189,7 @@ export function AthletesScreen() {
               </thead>
               <tbody>
                 {filtered.map((a) => (
-                  <tr key={a.id} className={selected.has(a.id) ? "is-selected" : ""} onClick={() => setPeekId(a.id)} onDoubleClick={() => navigate("athlete-detail", a.id)} style={{ cursor: "pointer", background: a.id === peekId ? "var(--accent-soft)" : undefined }}>
+                  <tr key={a.id} className={selected.has(a.id) ? "is-selected" : ""} onMouseEnter={() => prefetch("athlete-detail", a.id)} onClick={() => setPeekId(a.id)} onDoubleClick={() => navigate("athlete-detail", a.id)} style={{ cursor: "pointer", background: a.id === peekId ? "var(--accent-soft)" : undefined }}>
                     <td onClick={(e) => { e.stopPropagation(); toggleSel(a.id); }}>
                       <input type="checkbox" checked={selected.has(a.id)} onChange={() => {}} />
                     </td>
@@ -251,12 +251,12 @@ function bestPb(a: Athlete): string | null {
   return vals.length ? vals[0] : null;
 }
 
-function AthleteCard({ athlete, entries, onPeek }: { athlete: Athlete; entries: RaceEntry[]; onPeek: () => void }) {
+function AthleteCard({ athlete, entries, onPeek, onHover }: { athlete: Athlete; entries: RaceEntry[]; onPeek: () => void; onHover?: () => void }) {
   const { t } = useLane();
   const races = entries.filter((e) => e.athleteId === athlete.id).length;
   const pb = bestPb(athlete);
   return (
-    <button onClick={onPeek} className="card athlete-card" style={{ padding: 0, textAlign: "left", cursor: "pointer", overflow: "hidden" }}>
+    <button onClick={onPeek} onMouseEnter={onHover} className="card athlete-card" style={{ padding: 0, textAlign: "left", cursor: "pointer", overflow: "hidden" }}>
       <div style={{ height: 72, background: `linear-gradient(135deg, ${athlete.color}aa 0%, ${athlete.color}55 100%)`, position: "relative", overflow: "hidden" }}>
         <div style={{ position: "absolute", inset: 0, backgroundImage: "linear-gradient(0deg, transparent 0 28px, rgba(255,255,255,0.08) 28px 29px)", backgroundSize: "100% 28px" }} />
         <span style={{ position: "absolute", top: 10, right: 10 }}><StatusBadge status={athlete.status} /></span>

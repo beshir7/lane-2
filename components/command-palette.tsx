@@ -2,7 +2,7 @@
 
 // Command palette — ⌘K global search across nav, actions, athletes, competitions.
 
-import React, { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { Icon } from "./icon";
 import { useLane } from "./lane-provider";
 
@@ -22,13 +22,13 @@ export function CommandPalette() {
   const close = () => setCmdOpen(false);
 
   const navItems: Item[] = [
-    { name: "Dashboard", icon: "dashboard", group: "Navigate", run: () => { navigate("dashboard"); close(); }, sub: "G then D" },
-    { name: "Athletes", icon: "athletes", group: "Navigate", run: () => { navigate("athletes"); close(); }, sub: "G then A" },
-    { name: "Competitions", icon: "trophy", group: "Navigate", run: () => { navigate("competitions"); close(); }, sub: "G then C" },
-    { name: "Calendar", icon: "calendar", group: "Navigate", run: () => { navigate("calendar"); close(); }, sub: "G then K" },
-    { name: "Documents", icon: "document", group: "Navigate", run: () => { navigate("documents"); close(); }, sub: "G then F" },
-    { name: "Settings", icon: "settings", group: "Navigate", run: () => { navigate("settings"); close(); }, sub: "G then S" },
-    { name: "Roles & access", icon: "shield", group: "Navigate", run: () => { navigate("rbac"); close(); }, sub: "G then R" },
+    { name: "Dashboard", icon: "dashboard", group: "Navigate", run: () => { navigate("dashboard"); close(); }},
+    { name: "Athletes", icon: "athletes", group: "Navigate", run: () => { navigate("athletes"); close(); }},
+    { name: "Competitions", icon: "trophy", group: "Navigate", run: () => { navigate("competitions"); close(); }},
+    { name: "Calendar", icon: "calendar", group: "Navigate", run: () => { navigate("calendar"); close(); }},
+    { name: "Documents", icon: "document", group: "Navigate", run: () => { navigate("documents"); close(); }},
+    { name: "Settings", icon: "settings", group: "Navigate", run: () => { navigate("settings"); close(); }},
+    { name: "Roles & access", icon: "shield", group: "Navigate", run: () => { navigate("role"); close(); }},
   ];
   const actionItems: Item[] = [
     { name: "Add athlete...", icon: "plus", group: "Actions", run: () => { navigate("athletes"); close(); } },
