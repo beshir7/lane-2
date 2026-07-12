@@ -4,7 +4,7 @@
 
 import React, { useMemo, useState } from "react";
 import { Icon } from "@/components/icon";
-import { Avatar, EmptyState, Segmented } from "@/components/primitives";
+import { Avatar, Drawer, EmptyState, Segmented } from "@/components/primitives";
 import { FilterDropdown, StatusBadge } from "@/components/shared";
 import { AthleteFormModal } from "./athlete-form-modal";
 import { useLane } from "@/components/lane-provider";
@@ -36,8 +36,8 @@ const placeLabel = (pos?: number, note?: string) => (pos ? ordinal(pos) : note &
 export function AthletesScreen() {
   const { athletes, entries, competitions, navigate, createAthlete, deleteAthlete, t } = useLane();
   const push = useToast();
-  const [view, setView] = useState<"table" | "cards">("table");
-  const [previewId, setPreviewId] = useState<string | null>(null);
+  const [view, setView] = useState<"cards" | "list">("cards");
+  const [peekId, setPeekId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [filterCat, setFilterCat] = useState("all");
   const [filterStatus, setFilterStatus] = useState("all");
@@ -151,7 +151,7 @@ export function AthletesScreen() {
                 <button className="btn btn-secondary btn-sm"><Icon name="trash" size={13} /> Delete</button>
               </div>
             )}
-            <Segmented options={[{ value: "table", icon: "list", label: "Table" }, { value: "cards", icon: "grid", label: "Cards" }]} value={view} onChange={setView} />
+            <Segmented options={[{ value: "cards", icon: "grid", label: "Grid" }, { value: "list", icon: "list", label: "List" }]} value={view} onChange={setView} />
           </div>
         </div>
       </div>
@@ -165,65 +165,68 @@ export function AthletesScreen() {
             action={<button className="btn btn-secondary" onClick={() => { setSearch(""); setFilterCat("all"); setFilterStatus("all"); setFilterSquad("all"); setFilterGender("all"); }}>Clear filters</button>}
           />
         </div>
-      ) : view === "table" ? (
-        <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
-          {/* LEFT — Lista atleti: name (gender colour + contract), nationality, DOB */}
-          <div className="card" style={{ width: 400, flex: "none", overflow: "hidden" }}>
-            <div className="card-header">
-              <div className="card-title">{t("athletes.list")}</div>
-              <span className="text-sm muted">{filtered.length}</span>
-            </div>
-            <div className="table-wrap" style={{ maxHeight: "calc(100vh - 340px)", overflowY: "auto" }}>
-              <table className="table">
-                <thead>
-                  <tr>
-                    <th style={{ width: 26 }}>
-                      <input type="checkbox" checked={selected.size === filtered.length && filtered.length > 0} onChange={toggleAll} />
-                    </th>
-                    <SortHeader label={t("athlete.firstName")} k="name" cur={sortBy} onClick={() => flipSort("name")} />
-                    <SortHeader label={t("athlete.nationality")} k="nationality" cur={sortBy} onClick={() => flipSort("nationality")} />
-                    <SortHeader label={t("athlete.dob")} k="dob" cur={sortBy} onClick={() => flipSort("dob")} />
-                  </tr>
-                </thead>
-                <tbody>
-                  {filtered.map((a) => (
-                    <tr key={a.id} className={selected.has(a.id) ? "is-selected" : ""} onClick={() => setPreviewId(a.id)} onDoubleClick={() => navigate("athlete-detail", a.id)} style={{ cursor: "pointer", background: a.id === previewId ? "var(--accent-soft)" : undefined }}>
-                      <td onClick={(e) => { e.stopPropagation(); toggleSel(a.id); }}>
-                        <input type="checkbox" checked={selected.has(a.id)} onChange={() => {}} />
-                      </td>
-                      <td className="fw-600" style={{ color: nameColor(a.gender) }}>{a.first} {a.last}{contractSuffix(a.contract)}</td>
-                      <td className="text-sm">{a.nationality}</td>
-                      <td className="text-sm mono" style={{ whiteSpace: "nowrap" }}>{fmtDob(a.dob)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <div style={{ padding: "8px 14px", display: "flex", alignItems: "center", justifyContent: "space-between", borderTop: "1px solid var(--border-1)" }}>
-              <div className="row" style={{ gap: 14 }}>
-                <span className="row text-xs muted" style={{ gap: 5 }}><span style={{ width: 9, height: 9, borderRadius: 2, background: GENDER_COLOR.M, display: "inline-block" }} /> {t("gender.men")}</span>
-                <span className="row text-xs muted" style={{ gap: 5 }}><span style={{ width: 9, height: 9, borderRadius: 2, background: GENDER_COLOR.F, display: "inline-block" }} /> {t("gender.women")}</span>
-              </div>
-              <span className="text-xs muted">{filtered.length} / {athletes.length}</span>
-            </div>
-          </div>
-
-          {/* RIGHT — the selected athlete's competitions + statistics (photo_28/36) */}
-          <AthletePreview
-            athlete={filtered.find((a) => a.id === previewId) || null}
-            entries={entries.filter((e) => e.athleteId === previewId)}
-            competitions={competitions}
-            onOpen={() => previewId && navigate("athlete-detail", previewId)}
-            t={t}
-          />
-        </div>
-      ) : (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 12 }}>
+      ) : view === "cards" ? (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 12 }}>
           {filtered.map((a) => (
-            <AthleteCard key={a.id} athlete={a} onOpen={() => navigate("athlete-detail", a.id)} />
+            <AthleteCard key={a.id} athlete={a} entries={entries} onPeek={() => setPeekId(a.id)} />
           ))}
         </div>
+      ) : (
+        <div className="card" style={{ overflow: "hidden" }}>
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th style={{ width: 26 }}>
+                    <input type="checkbox" checked={selected.size === filtered.length && filtered.length > 0} onChange={toggleAll} />
+                  </th>
+                  <SortHeader label={t("athlete.firstName")} k="name" cur={sortBy} onClick={() => flipSort("name")} />
+                  <SortHeader label={t("athlete.nationality")} k="nationality" cur={sortBy} onClick={() => flipSort("nationality")} />
+                  <th>{t("filter.discipline")}</th>
+                  <SortHeader label={t("athlete.dob")} k="dob" cur={sortBy} onClick={() => flipSort("dob")} />
+                  <th style={{ width: 110 }}>{t("common.status")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((a) => (
+                  <tr key={a.id} className={selected.has(a.id) ? "is-selected" : ""} onClick={() => setPeekId(a.id)} onDoubleClick={() => navigate("athlete-detail", a.id)} style={{ cursor: "pointer", background: a.id === peekId ? "var(--accent-soft)" : undefined }}>
+                    <td onClick={(e) => { e.stopPropagation(); toggleSel(a.id); }}>
+                      <input type="checkbox" checked={selected.has(a.id)} onChange={() => {}} />
+                    </td>
+                    <td className="fw-600" style={{ color: nameColor(a.gender) }}>
+                      <div className="row" style={{ gap: 8 }}>
+                        <Avatar name={a.first + " " + a.last} color={a.color} size="xs" />
+                        {a.first} {a.last}{contractSuffix(a.contract)}
+                      </div>
+                    </td>
+                    <td className="text-sm">{a.nationality}</td>
+                    <td className="text-sm muted">{a.specialty}</td>
+                    <td className="text-sm mono" style={{ whiteSpace: "nowrap" }}>{fmtDob(a.dob)}</td>
+                    <td onClick={(e) => e.stopPropagation()}><StatusBadge status={a.status} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div style={{ padding: "8px 14px", display: "flex", alignItems: "center", justifyContent: "space-between", borderTop: "1px solid var(--border-1)" }}>
+            <div className="row" style={{ gap: 14 }}>
+              <span className="row text-xs muted" style={{ gap: 5 }}><span style={{ width: 9, height: 9, borderRadius: 2, background: GENDER_COLOR.M, display: "inline-block" }} /> {t("gender.men")}</span>
+              <span className="row text-xs muted" style={{ gap: 5 }}><span style={{ width: 9, height: 9, borderRadius: 2, background: GENDER_COLOR.F, display: "inline-block" }} /> {t("gender.women")}</span>
+            </div>
+            <span className="text-xs muted">{filtered.length} / {athletes.length}</span>
+          </div>
+        </div>
       )}
+
+      {/* Peek: quick-look of the athlete before opening the full profile. */}
+      <AthletePeek
+        athlete={athletes.find((a) => a.id === peekId) || null}
+        entries={entries.filter((e) => e.athleteId === peekId)}
+        competitions={competitions}
+        onClose={() => setPeekId(null)}
+        onOpen={() => { if (peekId) navigate("athlete-detail", peekId); }}
+        t={t}
+      />
 
       {showCreate && <AthleteFormModal onClose={() => setShowCreate(false)} onSave={(data) => { createAthlete(data); setShowCreate(false); }} />}
     </div>
@@ -241,113 +244,148 @@ function SortHeader({ label, k, cur, onClick }: { label: string; k: string; cur:
   );
 }
 
-function AthleteCard({ athlete, onOpen }: { athlete: Athlete; onOpen: () => void }) {
+function bestPb(a: Athlete): string | null {
+  if (a.pb && a.pb[a.specialty]) return a.pb[a.specialty];
+  const vals = a.pb ? Object.values(a.pb) : [];
+  return vals.length ? vals[0] : null;
+}
+
+function AthleteCard({ athlete, entries, onPeek }: { athlete: Athlete; entries: RaceEntry[]; onPeek: () => void }) {
+  const races = entries.filter((e) => e.athleteId === athlete.id).length;
+  const pb = bestPb(athlete);
   return (
-    <button onClick={onOpen} className="card" style={{ padding: 0, textAlign: "left", cursor: "pointer", overflow: "hidden" }}>
-      <div style={{ height: 80, background: `linear-gradient(135deg, ${athlete.color}aa 0%, ${athlete.color}55 100%)`, position: "relative", overflow: "hidden" }}>
+    <button onClick={onPeek} className="card athlete-card" style={{ padding: 0, textAlign: "left", cursor: "pointer", overflow: "hidden" }}>
+      <div style={{ height: 72, background: `linear-gradient(135deg, ${athlete.color}aa 0%, ${athlete.color}55 100%)`, position: "relative", overflow: "hidden" }}>
         <div style={{ position: "absolute", inset: 0, backgroundImage: "linear-gradient(0deg, transparent 0 28px, rgba(255,255,255,0.08) 28px 29px)", backgroundSize: "100% 28px" }} />
         <span style={{ position: "absolute", top: 10, right: 10 }}><StatusBadge status={athlete.status} /></span>
       </div>
-      <div style={{ padding: "0 16px 16px", marginTop: -28 }}>
+      <div style={{ padding: "0 16px 16px", marginTop: -26 }}>
         <Avatar name={athlete.first + " " + athlete.last} color={athlete.color} size="lg" style={{ border: "3px solid var(--bg-1)" }} />
         <div style={{ marginTop: 8 }}>
           <div className="display fw-700 text-lg" style={{ letterSpacing: "-0.02em", color: nameColor(athlete.gender) }}>{athlete.first} {athlete.last}{contractSuffix(athlete.contract)}</div>
           <div className="text-sm muted">{athlete.nationality} · {athlete.specialty}</div>
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginTop: 14, paddingTop: 12, borderTop: "1px solid var(--border-1)" }}>
-          <Stat3 v={athlete.medals.gold} l="Gold" c="#f5b14c" />
-          <Stat3 v={athlete.medals.silver} l="Silver" c="#c9d3df" />
-          <Stat3 v={athlete.medals.bronze} l="Bronze" c="#c08c5e" />
+        <div className="row" style={{ gap: 8, marginTop: 12, paddingTop: 12, borderTop: "1px solid var(--border-1)" }}>
+          <MiniStat label="PB" value={pb || "—"} mono />
+          <MiniStat label="Races" value={String(races)} />
+          <MiniStat label="Medals" value={`${athlete.medals.gold + athlete.medals.silver + athlete.medals.bronze}`} />
         </div>
       </div>
     </button>
   );
 }
 
-function Stat3({ v, l, c }: { v: number; l: string; c: string }) {
+function MiniStat({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
   return (
-    <div>
-      <div className="display fw-700" style={{ fontSize: 16, color: c, letterSpacing: "-0.02em" }}>{v}</div>
-      <div className="text-xs muted" style={{ textTransform: "uppercase", letterSpacing: "0.04em" }}>{l}</div>
+    <div style={{ flex: 1, minWidth: 0 }}>
+      <div className={`fw-700${mono ? " mono" : ""}`} style={{ fontSize: 14, letterSpacing: "-0.01em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{value}</div>
+      <div className="text-xs muted" style={{ textTransform: "uppercase", letterSpacing: "0.04em" }}>{label}</div>
     </div>
   );
 }
 
-// The list detail panel (photo_28 / photo_36): the selected athlete's whole
-// competition history — Data · Competizione · Naz · Distanza · Posizione · Tempo,
-// each line coloured by placement — followed by the statistics + placement pie.
-function AthletePreview({
+// Quick-look peek (slide-over): the athlete's headline stats + full competition
+// history — Data · Competizione · Naz · Distanza · Posizione · Tempo, coloured by
+// placement — with a clear CTA to open the full profile.
+function AthletePeek({
   athlete,
   entries,
   competitions,
+  onClose,
   onOpen,
   t,
 }: {
   athlete: Athlete | null;
   entries: RaceEntry[];
   competitions: Competition[];
+  onClose: () => void;
   onOpen: () => void;
   t: (k: string) => string;
 }) {
   const comp = (id: string) => competitions.find((c) => c.id === id);
   // Most recent competition first, like the old DB.
   const ordered = [...entries].sort((a, b) => (comp(b.competitionId)?.date || "").localeCompare(comp(a.competitionId)?.date || ""));
-
-  if (!athlete) {
-    return (
-      <div className="card" style={{ flex: 1, minWidth: 0 }}>
-        <div className="col" style={{ alignItems: "center", justifyContent: "center", gap: 10, padding: 48, textAlign: "center", minHeight: 320 }}>
-          <Icon name="trophy" size={30} style={{ color: "var(--fg-3)" }} />
-          <div className="text-sm muted" style={{ maxWidth: 280 }}>{t("athletes.selectHint")}</div>
-        </div>
-      </div>
-    );
-  }
+  const pb = athlete ? bestPb(athlete) : null;
+  const podium = athlete ? ordered.filter((e) => (e.position ?? 99) <= 3).length : 0;
 
   return (
-    <div className="card" style={{ flex: 1, minWidth: 0, overflow: "hidden" }}>
-      <div className="card-header">
-        <div className="row" style={{ gap: 10, alignItems: "baseline" }}>
-          <div className="card-title" style={{ color: nameColor(athlete.gender) }}>{athlete.first} {athlete.last}{contractSuffix(athlete.contract)}</div>
-          <span className="text-sm muted">{athlete.nationality} · {athlete.specialty}</span>
-        </div>
-        <button className="btn btn-secondary btn-sm" onClick={onOpen}><Icon name="edit" size={13} /> {t("athlete.openProfile")}</button>
-      </div>
+    <Drawer
+      open={!!athlete}
+      onClose={onClose}
+      size="xl"
+      title={athlete ? <span style={{ color: nameColor(athlete.gender) }}>{athlete.first} {athlete.last}{contractSuffix(athlete.contract)}</span> : ""}
+      footer={
+        <>
+          <button className="btn btn-secondary" onClick={onClose}>{t("common.close")}</button>
+          <button className="btn btn-primary" onClick={() => { onOpen(); onClose(); }}><Icon name="external" size={13} /> {t("athlete.openProfile")}</button>
+        </>
+      }
+    >
+      {athlete && (
+        <div className="col" style={{ gap: 16 }}>
+          <div className="row" style={{ gap: 14, alignItems: "center" }}>
+            <Avatar name={athlete.first + " " + athlete.last} color={athlete.color} size="lg" />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div className="text-sm muted">{athlete.nationality} · {athlete.specialty}</div>
+              <div style={{ marginTop: 4 }}><StatusBadge status={athlete.status} /></div>
+            </div>
+          </div>
 
-      <div className="table-wrap" style={{ maxHeight: "calc(100vh - 470px)", minHeight: 200, overflowY: "auto" }}>
-        <table className="table" style={{ margin: 0 }}>
-          <thead>
-            <tr>
-              <th style={{ width: 90 }}>{t("athlete.date")}</th>
-              <th>{t("athlete.competition")}</th>
-              <th style={{ width: 52 }}>{t("athlete.nation")}</th>
-              <th style={{ width: 110 }}>{t("athlete.distance")}</th>
-              <th style={{ width: 64 }}>{t("athlete.place")}</th>
-              <th style={{ width: 88 }}>{t("athlete.time")}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {ordered.length === 0 ? (
-              <tr><td colSpan={6} className="text-sm muted" style={{ padding: 16 }}>{t("athlete.noRaces")}</td></tr>
-            ) : (
-              ordered.map((e) => {
-                const c = comp(e.competitionId);
-                const color = e.position != null ? placementColor(e.position) : undefined;
-                return (
-                  <tr key={e.id} style={{ color }}>
-                    <td className="mono text-sm" style={{ whiteSpace: "nowrap", color }}>{fmtDob(c?.date)}</td>
-                    <td className="fw-600" style={{ color }}>{c?.name || e.competitionId}</td>
-                    <td className="mono text-sm" style={{ color }}>{c?.country || "—"}</td>
-                    <td style={{ color }}>{e.discipline}</td>
-                    <td className="fw-700 mono" style={{ color }}>{placeLabel(e.position, e.note)}</td>
-                    <td className="mono" style={{ color }}>{e.time || "—"}</td>
-                  </tr>
-                );
-              })
-            )}
-          </tbody>
-        </table>
-      </div>
+          <div className="row" style={{ gap: 8 }}>
+            <PeekStat label="PB" value={pb || "—"} mono />
+            <PeekStat label="Races" value={String(ordered.length)} />
+            <PeekStat label="Podiums" value={String(podium)} />
+            <PeekStat label="Medals" value={`${athlete.medals.gold + athlete.medals.silver + athlete.medals.bronze}`} />
+          </div>
+
+          <div>
+            <div className="text-xs muted mono fw-700" style={{ textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>{t("athlete.competition")}</div>
+            <div className="card" style={{ overflow: "hidden" }}>
+              <div className="table-wrap" style={{ maxHeight: "calc(100vh - 360px)", overflowY: "auto" }}>
+                <table className="table" style={{ margin: 0 }}>
+                  <thead>
+                    <tr>
+                      <th style={{ width: 90 }}>{t("athlete.date")}</th>
+                      <th>{t("athlete.competition")}</th>
+                      <th style={{ width: 100 }}>{t("athlete.distance")}</th>
+                      <th style={{ width: 56 }}>{t("athlete.place")}</th>
+                      <th style={{ width: 84 }}>{t("athlete.time")}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {ordered.length === 0 ? (
+                      <tr><td colSpan={5} className="text-sm muted" style={{ padding: 16 }}>{t("athlete.noRaces")}</td></tr>
+                    ) : (
+                      ordered.map((e) => {
+                        const c = comp(e.competitionId);
+                        const color = e.position != null ? placementColor(e.position) : undefined;
+                        return (
+                          <tr key={e.id} style={{ color }}>
+                            <td className="mono text-sm" style={{ whiteSpace: "nowrap", color }}>{fmtDob(c?.date)}</td>
+                            <td className="fw-600" style={{ color }}>{c?.name || e.competitionId}</td>
+                            <td style={{ color }}>{e.discipline}</td>
+                            <td className="fw-700 mono" style={{ color }}>{placeLabel(e.position, e.note)}</td>
+                            <td className="mono" style={{ color }}>{e.time || "—"}</td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </Drawer>
+  );
+}
+
+function PeekStat({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+  return (
+    <div className="card card-pad" style={{ flex: 1, minWidth: 0, padding: "10px 12px", textAlign: "center" }}>
+      <div className={`display fw-700${mono ? " mono" : ""}`} style={{ fontSize: 16, letterSpacing: "-0.02em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{value}</div>
+      <div className="text-xs muted" style={{ textTransform: "uppercase", letterSpacing: "0.04em" }}>{label}</div>
     </div>
   );
 }
