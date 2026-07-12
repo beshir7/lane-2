@@ -225,7 +225,7 @@ export function CompStatusBadge({ status }: { status: string }) {
 }
 
 export function CompetitionsScreen() {
-  const { competitions, athletes, organizers, entries, navigate, createCompetition, t } = useLane();
+  const { competitions, athletes, organizers, entries, navigate, prefetch, createCompetition, t } = useLane();
   const [view, setView] = useState<"cards" | "list">("cards");
   const [filter, setFilter] = useState<"all" | CompetitionStatus>("all");
   const [catQuery, setCatQuery] = useState("");
@@ -328,7 +328,7 @@ export function CompetitionsScreen() {
 
       {view === "cards" ? (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 12 }}>
-          {filtered.map((c) => <CompetitionCard key={c.id} c={c} athletes={athletes} entries={entries} onPeek={() => setSelectedRaceId(c.id)} />)}
+          {filtered.map((c) => <CompetitionCard key={c.id} c={c} athletes={athletes} entries={entries} onPeek={() => setSelectedRaceId(c.id)} onHover={() => prefetch("competition-detail", c.id)} />)}
           {filtered.length === 0 && <div className="card card-pad text-sm muted" style={{ gridColumn: "1 / -1" }}>{t("rs.noMatch")}</div>}
         </div>
       ) : (
@@ -343,6 +343,7 @@ export function CompetitionsScreen() {
                 <tbody>
                   {paged.map((c) => (
                     <tr key={c.id}
+                      onMouseEnter={() => prefetch("competition-detail", c.id)}
                       onClick={() => setSelectedRaceId(c.id)}
                       onDoubleClick={() => navigate("competition-detail", c.id)}
                       style={{ cursor: "pointer", background: c.id === selectedRaceId ? "var(--accent-soft)" : undefined }}>
@@ -566,14 +567,14 @@ function EntryEditModal({ entry, race, athletes, onClose }: { entry: RaceEntry; 
   );
 }
 
-function CompetitionCard({ c, athletes, entries, onPeek }: { c: Competition; athletes: Athlete[]; entries: RaceEntry[]; onPeek: () => void }) {
+function CompetitionCard({ c, athletes, entries, onPeek, onHover }: { c: Competition; athletes: Athlete[]; entries: RaceEntry[]; onPeek: () => void; onHover?: () => void }) {
   const { t } = useLane();
   const [hover, setHover] = useState(false);
   // The athletes actually entered in this race (for the avatar stack + hover list).
   const entered = entries.filter((e) => e.competitionId === c.id);
   const enteredAthletes = entered.map((e) => athletes.find((a) => a.id === e.athleteId)).filter(Boolean) as Athlete[];
   return (
-    <div style={{ position: "relative" }} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}>
+    <div style={{ position: "relative" }} onMouseEnter={() => { setHover(true); onHover?.(); }} onMouseLeave={() => setHover(false)}>
     <button className="card" onClick={onPeek} style={{ padding: 0, textAlign: "left", overflow: "hidden", cursor: "pointer", width: "100%" }}>
       <div
         style={{

@@ -91,7 +91,9 @@ export function DocumentsScreen() {
               <input className="input" placeholder={category === "visa" ? t("docs.searchVisa") : t("docs.search")} value={search} onChange={(e) => setSearch(e.target.value)} />
             </div>
             {showDateFilter && (
-              <FilterDropdown label={isContract ? t("docfilter.deadline") : t("docfilter.expiry")} value={dateFilter} options={dateOptions} onChange={setDateFilter} />
+              <div style={{ flex: "0 0 auto" }}>
+                <FilterDropdown label={isContract ? t("docfilter.deadline") : t("docfilter.expiry")} value={dateFilter} options={dateOptions} onChange={setDateFilter} align="right" />
+              </div>
             )}
           </div>
 
@@ -291,18 +293,28 @@ function RaceVisaPanel({ search }: { search: string }) {
   );
 }
 
-function UploadDropzone({ onUpload, empty }: { onUpload: (files: { name: string }[]) => void; empty?: boolean }) {
+function UploadDropzone({ onUpload, empty }: { onUpload: (files: { name: string; size?: string }[]) => void; empty?: boolean }) {
   const { t } = useLane();
   const [over, setOver] = useState(false);
+  const toMeta = (files: File[]) => files.map((f) => ({ name: f.name, size: (f.size / 1048576).toFixed(1) + " MB" }));
+  // Clicking the dropzone opens the OS file picker — same result as drag-drop.
+  const browse = async () => {
+    const files = await pickFiles("image/*,application/pdf,.doc,.docx", true);
+    if (files.length) onUpload(toMeta(files));
+  };
   return (
     <div
+      onClick={browse}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); browse(); } }}
       onDragOver={(e) => { e.preventDefault(); setOver(true); }}
       onDragLeave={() => setOver(false)}
       onDrop={(e) => {
         e.preventDefault();
         setOver(false);
         const files = Array.from(e.dataTransfer.files);
-        if (files.length) onUpload(files);
+        if (files.length) onUpload(toMeta(files));
       }}
       className="card"
       style={{
