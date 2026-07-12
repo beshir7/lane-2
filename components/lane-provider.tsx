@@ -11,33 +11,33 @@
 // (results, notifications, posts, …) live in memory for this session.
 // =========================================================================
 
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import type { ReactNode } from "react";
-import { useRouter } from "next/navigation";
-import { useToast } from "./primitives";
-import { createClient } from "@/lib/supabase/client";
-import { fetchLaneData, saveRow, updateRow, deleteRow, clearAllRows } from "@/lib/supabase/lane-db";
-import type {
-  Athlete,
-  Competition,
-  CalendarEvent,
-  ResultsMap,
-  Result,
-  AppNotification,
-  LaneDocument,
-  TeamUser,
-  Post,
-  ActivityItem,
-  AuditEntry,
-  DeviceSession,
-  Passport,
-  Visa,
-  Organizer,
-  RaceEntry,
-  Tweaks,
-  Page,
-} from "@/lib/types";
 import { translate, type Lang } from "@/lib/i18n";
+import { createClient } from "@/lib/supabase/client";
+import { clearAllRows, deleteRow, fetchLaneData, saveRow, updateRow } from "@/lib/supabase/lane-db";
+import type {
+    ActivityItem,
+    AppNotification,
+    Athlete,
+    AuditEntry,
+    CalendarEvent,
+    Competition,
+    DeviceSession,
+    LaneDocument,
+    Organizer,
+    Page,
+    Passport,
+    Post,
+    RaceEntry,
+    Result,
+    ResultsMap,
+    TeamUser,
+    Tweaks,
+    Visa,
+} from "@/lib/types";
+import { useRouter } from "next/navigation";
+import type { ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { useToast } from "./primitives";
 
 const LANG_KEY = "lane-lang";
 const newId = (p: string) => p + Math.random().toString(36).slice(2, 8);
@@ -601,6 +601,7 @@ export function LaneProvider({ children }: { children: ReactNode }) {
       tweaksOpen, setTweaksOpen,
       lang, setLang, t,
       navigate,
+      prefetch,
     }),
     [
       loading, currentUser, athletes, competitions, events, results, notifications, documents, users, posts, activity, audit, sessions,
@@ -610,6 +611,7 @@ export function LaneProvider({ children }: { children: ReactNode }) {
       createPassport, updatePassport, deletePassport, createVisa, updateVisa, deleteVisa,
       createOrganizer, updateOrganizer, deleteOrganizer, createEntry, updateEntry, deleteEntry,
       markAllRead, resetAll, tweaks, setTweak, authenticated, cmdOpen, tweaksOpen, lang, setLang, t, navigate,
+      prefetch,
     ]
   );
 
