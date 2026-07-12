@@ -217,9 +217,10 @@ function CategorySearchFilter({
 }
 
 export function CompStatusBadge({ status }: { status: string }) {
+  const { t } = useLane();
   if (status === "live") return <Badge variant="danger" dot>LIVE</Badge>;
-  if (status === "upcoming") return <Badge variant="accent" dot>Upcoming</Badge>;
-  if (status === "completed") return <Badge variant="success" dot>Completed</Badge>;
+  if (status === "upcoming") return <Badge variant="accent" dot>{t("rs.upcoming")}</Badge>;
+  if (status === "completed") return <Badge variant="success" dot>{t("rs.completed")}</Badge>;
   return <Badge>{status}</Badge>;
 }
 
@@ -294,10 +295,10 @@ export function CompetitionsScreen() {
 
       <Tabs
         tabs={[
-          { value: "all", label: "All", count: counts.all },
-          { value: "upcoming", label: "Upcoming", count: counts.upcoming },
-          { value: "live", label: "Live now", count: counts.live },
-          { value: "completed", label: "Completed", count: counts.completed },
+          { value: "all", label: t("rs.all"), count: counts.all },
+          { value: "upcoming", label: t("rs.upcoming"), count: counts.upcoming },
+          { value: "live", label: t("rs.liveNow"), count: counts.live },
+          { value: "completed", label: t("rs.completed"), count: counts.completed },
         ]}
         value={filter}
         onChange={setFilter}
@@ -310,10 +311,10 @@ export function CompetitionsScreen() {
             <input className="input" placeholder={t("races.searchPlaceholder")} value={search} onChange={(e) => setSearch(e.target.value)} />
           </div>
           <CategorySearchFilter value={catQuery} onChange={setCatQuery} history={catHistory} onCommit={pushHistory} />
-          <div className="input-group" style={{ width: 170, flex: "0 0 auto" }} title="When">
+          <div className="input-group" style={{ width: 170, flex: "0 0 auto" }} title={t("rs.when")}>
             <Icon name="clock" size={14} />
             <select className="input" style={{ flex: 1, minWidth: 0, width: "auto", border: "none", background: "transparent" }} value={when} onChange={(e) => setWhen(e.target.value as WhenKey)}>
-              {WHEN_OPTIONS.map((o) => <option key={o.v} value={o.v}>{o.l}</option>)}
+              {WHEN_OPTIONS.map((o) => <option key={o.v} value={o.v}>{t("when." + o.v)}</option>)}
             </select>
           </div>
           <div className="input-group" style={{ width: 190, flex: "0 0 auto" }} title={t("races.month")}>
@@ -321,14 +322,14 @@ export function CompetitionsScreen() {
             <input className="input" style={{ flex: 1, minWidth: 0, width: "auto", paddingRight: monthFilter ? 30 : 10 }} type="month" value={monthFilter} onChange={(e) => setMonthFilter(e.target.value)} />
             {monthFilter && <button className="icon-btn" style={{ position: "absolute", right: 4, flex: "none" }} title={t("common.clear")} onClick={() => setMonthFilter("")}><Icon name="close" size={13} /></button>}
           </div>
-          <Segmented options={[{ value: "cards", icon: "grid", label: "Grid" }, { value: "list", icon: "list", label: "List" }]} value={view} onChange={setView} />
+          <Segmented options={[{ value: "cards", icon: "grid", label: t("rs.grid") }, { value: "list", icon: "list", label: t("rs.list") }]} value={view} onChange={setView} />
         </div>
       </div>
 
       {view === "cards" ? (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 12 }}>
           {filtered.map((c) => <CompetitionCard key={c.id} c={c} athletes={athletes} entries={entries} onPeek={() => setSelectedRaceId(c.id)} />)}
-          {filtered.length === 0 && <div className="card card-pad text-sm muted" style={{ gridColumn: "1 / -1" }}>No races match your filters.</div>}
+          {filtered.length === 0 && <div className="card card-pad text-sm muted" style={{ gridColumn: "1 / -1" }}>{t("rs.noMatch")}</div>}
         </div>
       ) : (
         <div className="col" style={{ gap: 12 }}>
@@ -337,7 +338,7 @@ export function CompetitionsScreen() {
             <div className="table-wrap">
               <table className="table">
                 <thead>
-                  <tr><th style={{ width: 104 }}>Date</th><th>Competition</th><th style={{ width: 90 }}>Type</th><th style={{ width: 80 }}>Entries</th><th style={{ width: 64 }}>Nation</th></tr>
+                  <tr><th style={{ width: "14%" }}>{t("rs.date")}</th><th style={{ width: "44%" }}>{t("rs.competition")}</th><th style={{ width: "16%" }}>{t("rs.type")}</th><th style={{ width: "12%" }}>{t("rs.entries")}</th><th style={{ width: "14%" }}>{t("rs.nation")}</th></tr>
                 </thead>
                 <tbody>
                   {paged.map((c) => (
@@ -358,16 +359,16 @@ export function CompetitionsScreen() {
                       <td className="text-sm mono">{c.country || "—"}</td>
                     </tr>
                   ))}
-                  {paged.length === 0 && <tr><td colSpan={5} className="text-sm muted" style={{ padding: 16 }}>No races match your filters.</td></tr>}
+                  {paged.length === 0 && <tr><td colSpan={5} className="text-sm muted" style={{ padding: 16 }}>{t("rs.noMatch")}</td></tr>}
                 </tbody>
               </table>
             </div>
             <div style={{ padding: "8px 14px", display: "flex", alignItems: "center", justifyContent: "space-between", borderTop: "1px solid var(--border-1)" }}>
               <span className="text-xs muted">{filtered.length === 0 ? "0" : `${safePage * PAGE_SIZE + 1}–${Math.min(filtered.length, safePage * PAGE_SIZE + PAGE_SIZE)}`} / {filtered.length}</span>
               <div className="row" style={{ gap: 6, alignItems: "center" }}>
-                <button className="btn btn-secondary btn-sm" disabled={safePage <= 0} onClick={() => setPage(safePage - 1)}><Icon name="chevronLeft" size={13} /> Prev</button>
+                <button className="btn btn-secondary btn-sm" disabled={safePage <= 0} onClick={() => setPage(safePage - 1)}><Icon name="chevronLeft" size={13} /> {t("rs.prev")}</button>
                 <span className="text-xs muted mono">{safePage + 1}/{pageCount}</span>
-                <button className="btn btn-secondary btn-sm" disabled={safePage >= pageCount - 1} onClick={() => setPage(safePage + 1)}>Next <Icon name="chevronRight" size={13} /></button>
+                <button className="btn btn-secondary btn-sm" disabled={safePage >= pageCount - 1} onClick={() => setPage(safePage + 1)}>{t("rs.next")} <Icon name="chevronRight" size={13} /></button>
               </div>
             </div>
           </div>
@@ -446,27 +447,27 @@ function RacePeek({ race, entries, athletes, onEditResult, onEditEntry, onClose,
       footer={
         <>
           <button className="btn btn-secondary" onClick={onClose}>{t("common.close")}</button>
-          <button className="btn btn-primary" onClick={() => { onOpen(); onClose(); }}><Icon name="external" size={13} /> Open race</button>
+          <button className="btn btn-primary" onClick={() => { onOpen(); onClose(); }}><Icon name="external" size={13} /> {t("rs.openRace")}</button>
         </>
       }
     >
       {race && (
       <div className="col" style={{ gap: 14 }}>
         <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
-          <PeekMeta label="Date" value={race.date || "—"} mono />
-          <PeekMeta label="Venue" value={[race.location, race.country].filter(Boolean).join(", ") || "—"} />
-          {race.level && <PeekMeta label="Level" value={race.level} />}
-          <PeekMeta label="Entries" value={String(entries.length)} />
+          <PeekMeta label={t("rs.date")} value={race.date || "—"} mono />
+          <PeekMeta label={t("cd.venue")} value={[race.location, race.country].filter(Boolean).join(", ") || "—"} />
+          {race.level && <PeekMeta label={t("cd.level")} value={race.level} />}
+          <PeekMeta label={t("rs.entries")} value={String(entries.length)} />
         </div>
       <div className="card" style={{ overflow: "hidden" }}>
       <div className="table-wrap" style={{ maxHeight: "calc(100vh - 360px)", overflowY: "auto" }}>
         <table className="table" style={{ margin: 0 }}>
           <thead>
-            <tr><th>Name</th><th>Discipline</th><th style={{ width: 96 }}>Status</th><th style={{ width: 60 }}>Pos.</th><th style={{ width: 78 }}>Time</th><th style={{ width: 40 }}></th></tr>
+            <tr><th>{t("rs.name")}</th><th>{t("rs.discipline")}</th><th style={{ width: 96 }}>{t("common.status")}</th><th style={{ width: 60 }}>{t("rs.pos")}</th><th style={{ width: 78 }}>{t("rs.time")}</th><th style={{ width: 40 }}></th></tr>
           </thead>
           <tbody>
             {entries.length === 0 ? (
-              <tr><td colSpan={6} className="text-sm muted" style={{ padding: 16 }}>No athletes entered in this race.</td></tr>
+              <tr><td colSpan={6} className="text-sm muted" style={{ padding: 16 }}>{t("rs.noAthletesInRace")}</td></tr>
             ) : entries.map((e) => {
               const color = e.position != null ? placementColor(e.position) : undefined;
               return (
@@ -485,7 +486,7 @@ function RacePeek({ race, entries, athletes, onEditResult, onEditEntry, onClose,
                   <td className="fw-700 mono" style={{ color }}>{placeText(e)}</td>
                   <td className="mono" style={{ color }}>{e.time || "—"}</td>
                   <td onClick={(ev) => ev.stopPropagation()}>
-                    <button className="icon-btn" title="Edit athlete / discipline" onClick={() => onEditEntry(e)}><Icon name="edit" size={13} /></button>
+                    <button className="icon-btn" title={t("rs.editEntry")} onClick={() => onEditEntry(e)}><Icon name="edit" size={13} /></button>
                   </td>
                 </tr>
               );
@@ -496,17 +497,17 @@ function RacePeek({ race, entries, athletes, onEditResult, onEditEntry, onClose,
       </div>
       <div className="row" style={{ gap: 8, color: "var(--fg-3)" }}>
         <Icon name="info" size={14} />
-        <span className="text-xs">Right-click an athlete to edit info, result or status · double-click to enter a result.</span>
+        <span className="text-xs">{t("rs.rightClickHint")}</span>
       </div>
       </div>
       )}
 
       {menu && (
         <div style={{ position: "fixed", top: menuTop, left: menuLeft, zIndex: 50, width: 224, background: "var(--bg-1)", border: "1px solid var(--border-2)", borderRadius: "var(--r-md)", boxShadow: "var(--shadow-lift)", padding: 4 }}>
-          <button style={menuItem} onMouseEnter={hoverOn} onMouseLeave={hoverOff} onClick={() => { onEditEntry(menu.entry); setMenu(null); }}><Icon name="user" size={13} /> Edit athlete / discipline</button>
-          <button style={menuItem} onMouseEnter={hoverOn} onMouseLeave={hoverOff} onClick={() => { onEditResult(menu.entry); setMenu(null); }}><Icon name="edit" size={13} /> Edit result</button>
+          <button style={menuItem} onMouseEnter={hoverOn} onMouseLeave={hoverOff} onClick={() => { onEditEntry(menu.entry); setMenu(null); }}><Icon name="user" size={13} /> {t("rs.editEntry")}</button>
+          <button style={menuItem} onMouseEnter={hoverOn} onMouseLeave={hoverOff} onClick={() => { onEditResult(menu.entry); setMenu(null); }}><Icon name="edit" size={13} /> {t("rs.editResult")}</button>
           <div style={{ height: 1, background: "var(--border-1)", margin: "4px 6px" }} />
-          <div className="text-xs mono fw-700 muted" style={{ textTransform: "uppercase", letterSpacing: "0.05em", padding: "4px 10px 2px" }}>Set status</div>
+          <div className="text-xs mono fw-700 muted" style={{ textTransform: "uppercase", letterSpacing: "0.05em", padding: "4px 10px 2px" }}>{t("rs.setStatus")}</div>
           {ENTRY_STATUS_KEYS.map((s) => (
             <button key={s} style={menuItem} onMouseEnter={hoverOn} onMouseLeave={hoverOff} onClick={() => setStatus(menu.entry, s)}>
               <span style={{ width: 14, display: "inline-flex" }}>{menu.entry.status === s && <Icon name="check" size={13} style={{ color: "var(--accent)" }} />}</span>
@@ -566,11 +567,14 @@ function EntryEditModal({ entry, race, athletes, onClose }: { entry: RaceEntry; 
 }
 
 function CompetitionCard({ c, athletes, entries, onPeek }: { c: Competition; athletes: Athlete[]; entries: RaceEntry[]; onPeek: () => void }) {
-  // The athletes actually entered in this race (for the avatar stack).
+  const { t } = useLane();
+  const [hover, setHover] = useState(false);
+  // The athletes actually entered in this race (for the avatar stack + hover list).
   const entered = entries.filter((e) => e.competitionId === c.id);
   const enteredAthletes = entered.map((e) => athletes.find((a) => a.id === e.athleteId)).filter(Boolean) as Athlete[];
   return (
-    <button className="card" onClick={onPeek} style={{ padding: 0, textAlign: "left", overflow: "hidden", cursor: "pointer" }}>
+    <div style={{ position: "relative" }} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}>
+    <button className="card" onClick={onPeek} style={{ padding: 0, textAlign: "left", overflow: "hidden", cursor: "pointer", width: "100%" }}>
       <div
         style={{
           padding: 16,
@@ -597,14 +601,14 @@ function CompetitionCard({ c, athletes, entries, onPeek }: { c: Competition; ath
       </div>
       <div style={{ padding: 14, display: "flex", flexDirection: "column", gap: 12 }}>
         <div>
-          <div className="text-xs muted mono fw-700" style={{ textTransform: "uppercase", letterSpacing: "0.05em" }}>Events</div>
+          <div className="text-xs muted mono fw-700" style={{ textTransform: "uppercase", letterSpacing: "0.05em" }}>{t("rs.events")}</div>
           <div style={{ marginTop: 6, display: "flex", flexWrap: "wrap", gap: 4 }}>
             {c.events.length ? c.events.slice(0, 6).map((e) => <span key={e} className="tag">{e}</span>) : <span className="text-sm muted">—</span>}
             {c.events.length > 6 && <span className="tag">+{c.events.length - 6}</span>}
           </div>
         </div>
         <div className="row" style={{ borderTop: "1px solid var(--border-1)", paddingTop: 12 }}>
-          <div className="text-xs muted">{entered.length} {entered.length === 1 ? "entry" : "entries"}</div>
+          <div className="text-xs muted">{entered.length} {entered.length === 1 ? t("rs.entryOne") : t("rs.entryMany")}</div>
           <div className="spacer" />
           {enteredAthletes.length > 0 ? (
             <div className="avatar-stack">
@@ -612,11 +616,32 @@ function CompetitionCard({ c, athletes, entries, onPeek }: { c: Competition; ath
               {enteredAthletes.length > 4 && <span className="avatar avatar-xs" style={{ background: "var(--bg-3)", color: "var(--fg-2)" }}>+{enteredAthletes.length - 4}</span>}
             </div>
           ) : (
-            <span className="muted text-sm">None yet</span>
+            <span className="muted text-sm">{t("rs.noneYet")}</span>
           )}
         </div>
       </div>
     </button>
+
+      {/* Hover: the full roster of athletes entered in this race (to the side). */}
+      {hover && enteredAthletes.length > 0 && (
+        <div
+          style={{
+            position: "absolute", top: 0, left: "calc(100% + 8px)", width: 210, zIndex: 30,
+            background: "var(--bg-1)", border: "1px solid var(--border-2)", borderRadius: "var(--r-md)",
+            boxShadow: "var(--shadow-lift)", padding: 6, maxHeight: 260, overflowY: "auto",
+          }}
+        >
+          <div className="text-xs muted mono fw-700" style={{ textTransform: "uppercase", letterSpacing: "0.05em", padding: "2px 6px 5px" }}>{t("rs.enteredLabel")} · {enteredAthletes.length}</div>
+          {enteredAthletes.map((a) => (
+            <div key={a.id} className="row" style={{ gap: 7, padding: "3px 6px" }}>
+              <Avatar name={a.first + " " + a.last} color={a.color} size="xs" />
+              <span className="text-xs fw-500" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.first} {a.last}</span>
+              <span className="text-xs muted" style={{ marginLeft: "auto" }}>{a.nationality?.slice(0, 3)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 

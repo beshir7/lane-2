@@ -4,7 +4,7 @@
 
 import React, { useMemo, useState } from "react";
 import { Icon } from "@/components/icon";
-import { Avatar, Drawer, EmptyState, Segmented } from "@/components/primitives";
+import { Avatar, ConfirmModal, Drawer, EmptyState, Segmented } from "@/components/primitives";
 import { FilterDropdown, StatusBadge } from "@/components/shared";
 import { AthleteFormModal } from "./athlete-form-modal";
 import { useLane } from "@/components/lane-provider";
@@ -135,7 +135,7 @@ export function AthletesScreen() {
         <div style={{ padding: 12, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
           <div className="input-group" style={{ flex: 1, minWidth: 220 }}>
             <Icon name="search" size={14} />
-            <input className="input" placeholder="Search by name, event, country…" value={search} onChange={(e) => setSearch(e.target.value)} />
+            <input className="input" placeholder={t("as.searchPlaceholder")} value={search} onChange={(e) => setSearch(e.target.value)} />
           </div>
           <FilterDropdown label={t("filter.gender")} value={filterGender} options={[{ v: "all", l: t("gender.mf") }, { v: "F", l: t("gender.women") }, { v: "M", l: t("gender.men") }]} onChange={setFilterGender} />
           <FilterDropdown label={t("filter.discipline")} value={filterCat} options={[{ v: "all", l: t("common.all") }, ...Object.entries(EVENT_CATEGORIES).map(([k, v]) => ({ v: k, l: v.label }))]} onChange={setFilterCat} />
@@ -148,7 +148,7 @@ export function AthletesScreen() {
                 <span className="text-sm muted">{selected.size} selected</span>
                 <button className="btn btn-secondary btn-sm"><Icon name="mail" size={13} /> Message</button>
                 <button className="btn btn-secondary btn-sm"><Icon name="folder" size={13} /> Move squad</button>
-                <button className="btn btn-secondary btn-sm"><Icon name="trash" size={13} /> Delete</button>
+                <button className="btn btn-secondary btn-sm"><Icon name="trash" size={13} /> {t("common.delete")}</button>
               </div>
             )}
             <Segmented options={[{ value: "cards", icon: "grid", label: "Grid" }, { value: "list", icon: "list", label: "List" }]} value={view} onChange={setView} />
@@ -160,9 +160,9 @@ export function AthletesScreen() {
         <div className="card">
           <EmptyState
             icon="athletes"
-            title="No athletes match your filters"
+            title={t("as.noMatch")}
             description="Try clearing search or filter selections to see more athletes."
-            action={<button className="btn btn-secondary" onClick={() => { setSearch(""); setFilterCat("all"); setFilterStatus("all"); setFilterSquad("all"); setFilterGender("all"); }}>Clear filters</button>}
+            action={<button className="btn btn-secondary" onClick={() => { setSearch(""); setFilterCat("all"); setFilterStatus("all"); setFilterSquad("all"); setFilterGender("all"); }}>{t("as.clearFilters")}</button>}
           />
         </div>
       ) : view === "cards" ? (
@@ -225,6 +225,7 @@ export function AthletesScreen() {
         competitions={competitions}
         onClose={() => setPeekId(null)}
         onOpen={() => { if (peekId) navigate("athlete-detail", peekId); }}
+        onDelete={() => { if (peekId) { deleteAthlete(peekId); setPeekId(null); } }}
         t={t}
       />
 
@@ -251,6 +252,7 @@ function bestPb(a: Athlete): string | null {
 }
 
 function AthleteCard({ athlete, entries, onPeek }: { athlete: Athlete; entries: RaceEntry[]; onPeek: () => void }) {
+  const { t } = useLane();
   const races = entries.filter((e) => e.athleteId === athlete.id).length;
   const pb = bestPb(athlete);
   return (
@@ -267,8 +269,8 @@ function AthleteCard({ athlete, entries, onPeek }: { athlete: Athlete; entries: 
         </div>
         <div className="row" style={{ gap: 8, marginTop: 12, paddingTop: 12, borderTop: "1px solid var(--border-1)" }}>
           <MiniStat label="PB" value={pb || "—"} mono />
-          <MiniStat label="Races" value={String(races)} />
-          <MiniStat label="Medals" value={`${athlete.medals.gold + athlete.medals.silver + athlete.medals.bronze}`} />
+          <MiniStat label={t("as.races")} value={String(races)} />
+          <MiniStat label={t("as.medals")} value={`${athlete.medals.gold + athlete.medals.silver + athlete.medals.bronze}`} />
         </div>
       </div>
     </button>
@@ -293,6 +295,7 @@ function AthletePeek({
   competitions,
   onClose,
   onOpen,
+  onDelete,
   t,
 }: {
   athlete: Athlete | null;
@@ -300,8 +303,10 @@ function AthletePeek({
   competitions: Competition[];
   onClose: () => void;
   onOpen: () => void;
-  t: (k: string) => string;
+  onDelete: () => void;
+  t: (k: string, vars?: Record<string, string | number>) => string;
 }) {
+  const [confirm, setConfirm] = useState(false);
   const comp = (id: string) => competitions.find((c) => c.id === id);
   // Most recent competition first, like the old DB.
   const ordered = [...entries].sort((a, b) => (comp(b.competitionId)?.date || "").localeCompare(comp(a.competitionId)?.date || ""));
@@ -316,11 +321,23 @@ function AthletePeek({
       title={athlete ? <span style={{ color: nameColor(athlete.gender) }}>{athlete.first} {athlete.last}{contractSuffix(athlete.contract)}</span> : ""}
       footer={
         <>
+          <button className="btn btn-ghost" style={{ color: "var(--danger)", marginRight: "auto" }} onClick={() => setConfirm(true)}><Icon name="trash" size={13} /> {t("common.delete")}</button>
           <button className="btn btn-secondary" onClick={onClose}>{t("common.close")}</button>
           <button className="btn btn-primary" onClick={() => { onOpen(); onClose(); }}><Icon name="external" size={13} /> {t("athlete.openProfile")}</button>
         </>
       }
     >
+      {confirm && athlete && (
+        <ConfirmModal
+          title={t("common.delete")}
+          message={t("prof.deleteConfirm", { name: `${athlete.first} ${athlete.last}` })}
+          onCancel={() => setConfirm(false)}
+          choices={[
+            { label: t("common.cancel"), variant: "secondary", onClick: () => setConfirm(false) },
+            { label: t("common.delete"), variant: "danger", onClick: () => { setConfirm(false); onDelete(); } },
+          ]}
+        />
+      )}
       {athlete && (
         <div className="col" style={{ gap: 16 }}>
           <div className="row" style={{ gap: 14, alignItems: "center" }}>
@@ -333,9 +350,9 @@ function AthletePeek({
 
           <div className="row" style={{ gap: 8 }}>
             <PeekStat label="PB" value={pb || "—"} mono />
-            <PeekStat label="Races" value={String(ordered.length)} />
-            <PeekStat label="Podiums" value={String(podium)} />
-            <PeekStat label="Medals" value={`${athlete.medals.gold + athlete.medals.silver + athlete.medals.bronze}`} />
+            <PeekStat label={t("as.races")} value={String(ordered.length)} />
+            <PeekStat label={t("as.podiums")} value={String(podium)} />
+            <PeekStat label={t("as.medals")} value={`${athlete.medals.gold + athlete.medals.silver + athlete.medals.bronze}`} />
           </div>
 
           <div>

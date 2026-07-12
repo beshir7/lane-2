@@ -7,9 +7,17 @@ import { Icon } from "@/components/icon";
 import { Avatar, Drawer, EmptyState, Segmented, Tag } from "@/components/primitives";
 import { EventTypeBadge, FilterDropdown, formatHour } from "@/components/shared";
 import { useLane } from "@/components/lane-provider";
+import { localeOf } from "@/lib/i18n";
+import { downloadCsv } from "@/utils";
 import type { Athlete, CalendarEvent, CalendarCategory } from "@/lib/types";
 
 type CalView = "month" | "week" | "day";
+
+// Local (not UTC) ISO date for "today", used to highlight the current day.
+const todayIso = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+};
 
 // A calendar item is either a real editable event or a read-only item derived
 // from a race (competition). Race items carry the entered athletes and link to
@@ -21,7 +29,9 @@ const getWeekStart = (d: Date) => {
   out.setDate(out.getDate() - out.getDay());
   return out;
 };
-const formatDate = (d: Date) => d.toISOString().slice(0, 10);
+// Local (not UTC) ISO date — using toISOString() here shifts the day in +offset
+// timezones, which mis-highlighted "today" and placed events on the wrong day.
+const formatDate = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
 const catColor = (cat: string) =>
   cat === "competition" ? "var(--danger)" : cat === "training" ? "var(--success)" : cat === "travel" ? "var(--warning)" : "var(--accent)";
@@ -29,10 +39,11 @@ const catBg = (cat: string) =>
   cat === "competition" ? "rgba(245, 91, 110, 0.13)" : cat === "training" ? "rgba(34, 211, 160, 0.13)" : cat === "travel" ? "rgba(245, 177, 76, 0.13)" : "rgba(107, 125, 255, 0.16)";
 
 export function CalendarScreen() {
-  const { events, athletes, competitions, entries, updateEvent, createEvent, deleteEvent, navigate } = useLane();
+  const { events, athletes, competitions, entries, updateEvent, createEvent, deleteEvent, navigate, t, lang } = useLane();
+  const loc = localeOf(lang);
   const [view, setView] = useState<CalView>("month");
   const isTimeView = view === "month" || view === "week" || view === "day";
-  const [cursor, setCursor] = useState(new Date(2026, 4, 21));
+  const [cursor, setCursor] = useState(() => new Date());
   const [filterCat, setFilterCat] = useState<Set<string>>(new Set(["competition", "training", "travel", "meeting"]));
   const [filterAthlete, setFilterAthlete] = useState("all");
   const [editEvent, setEditEvent] = useState<CalendarEvent | null>(null);
@@ -83,14 +94,19 @@ export function CalendarScreen() {
     setCursor(next);
   };
 
-  const today = () => setCursor(new Date(2026, 4, 21));
+  const today = () => setCursor(new Date());
+
+  const exportEvents = () => downloadCsv(
+    "calendar-events",
+    events.map((e) => ({ title: e.title, category: e.category, date: e.date, start: formatHour(e.startHour), duration: e.duration, location: e.location, athletes: e.athletes.length }))
+  );
 
   const title =
     view === "month"
-      ? cursor.toLocaleDateString("en-US", { month: "long", year: "numeric" })
+      ? cursor.toLocaleDateString(loc, { month: "long", year: "numeric" })
       : view === "week"
-      ? `Week of ${getWeekStart(cursor).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`
-      : cursor.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
+      ? `${t("cal.weekOf")} ${getWeekStart(cursor).toLocaleDateString(loc, { month: "short", day: "numeric" })}`
+      : cursor.toLocaleDateString(loc, { weekday: "long", month: "long", day: "numeric", year: "numeric" });
 
   // Only real events can be dragged to reschedule; race items are read-only.
   const moveEvent = (eventId: string, newDate: string) => {
@@ -102,13 +118,12 @@ export function CalendarScreen() {
     <div className="page">
       <div className="page-header">
         <div>
-          <h1 className="page-title">Calendar</h1>
-          <p className="page-subtitle">Drag events to reschedule · Real-time sync across the team</p>
+          <h1 className="page-title">{t("cal.title")}</h1>
+          <p className="page-subtitle">{t("cal.subtitle")}</p>
         </div>
         <div className="page-header-actions">
-          <button className="btn btn-secondary"><Icon name="download" size={14} /> Export</button>
-          <button className="btn btn-secondary"><Icon name="link" size={14} /> Sync calendars</button>
-          <button className="btn btn-primary" onClick={() => setNewOnDate(new Date(cursor))}><Icon name="plus" size={14} /> New event</button>
+          <button className="btn btn-secondary" onClick={exportEvents}><Icon name="download" size={14} /> {t("common.export")}</button>
+          <button className="btn btn-primary" onClick={() => setNewOnDate(new Date(cursor))}><Icon name="plus" size={14} /> {t("cal.newEvent")}</button>
         </div>
       </div>
 
@@ -118,19 +133,19 @@ export function CalendarScreen() {
             <>
               <div className="row" style={{ gap: 4 }}>
                 <button className="btn btn-secondary btn-sm" onClick={() => moveCursor(-1)}><Icon name="chevronLeft" size={13} /></button>
-                <button className="btn btn-secondary btn-sm" onClick={today}>Today</button>
+                <button className="btn btn-secondary btn-sm" onClick={today}>{t("cal.today")}</button>
                 <button className="btn btn-secondary btn-sm" onClick={() => moveCursor(1)}><Icon name="chevronRight" size={13} /></button>
               </div>
-              <div className="display fw-700" style={{ fontSize: 18, letterSpacing: "-0.02em", marginLeft: 8 }}>{title}</div>
+              <div className="display fw-700" style={{ fontSize: 18, letterSpacing: "-0.02em", marginLeft: 8, textTransform: "capitalize" }}>{title}</div>
 
               <div className="row" style={{ gap: 5 }}>
-                <CategoryFilter cat="competition" label="Comps" color="var(--danger)" filterCat={filterCat} setFilterCat={setFilterCat} />
-                <CategoryFilter cat="training" label="Training" color="var(--success)" filterCat={filterCat} setFilterCat={setFilterCat} />
-                <CategoryFilter cat="travel" label="Travel" color="var(--warning)" filterCat={filterCat} setFilterCat={setFilterCat} />
-                <CategoryFilter cat="meeting" label="Meetings" color="var(--accent)" filterCat={filterCat} setFilterCat={setFilterCat} />
+                <CategoryFilter cat="competition" label={t("cal.comps")} color="var(--danger)" filterCat={filterCat} setFilterCat={setFilterCat} />
+                <CategoryFilter cat="training" label={t("cal.training")} color="var(--success)" filterCat={filterCat} setFilterCat={setFilterCat} />
+                <CategoryFilter cat="travel" label={t("cal.travel")} color="var(--warning)" filterCat={filterCat} setFilterCat={setFilterCat} />
+                <CategoryFilter cat="meeting" label={t("cal.meetings")} color="var(--accent)" filterCat={filterCat} setFilterCat={setFilterCat} />
               </div>
 
-              <FilterDropdown label="Athlete" value={filterAthlete} options={[{ v: "all", l: "All athletes" }, ...athletes.map((a) => ({ v: a.id, l: `${a.first} ${a.last}` }))]} onChange={setFilterAthlete} />
+              <FilterDropdown label={t("cal.athlete")} value={filterAthlete} options={[{ v: "all", l: t("cal.allAthletes") }, ...athletes.map((a) => ({ v: a.id, l: `${a.first} ${a.last}` }))]} onChange={setFilterAthlete} />
             </>
           )}
 
@@ -138,9 +153,9 @@ export function CalendarScreen() {
 
           <Segmented
             options={[
-              { value: "month", label: "Month" },
-              { value: "week", label: "Week" },
-              { value: "day", label: "Day" },
+              { value: "month", label: t("cal.month") },
+              { value: "week", label: t("cal.week") },
+              { value: "day", label: t("cal.day") },
             ]}
             value={view}
             onChange={setView}
@@ -190,6 +205,7 @@ function CategoryFilter({ cat, label, color, filterCat, setFilterCat }: { cat: s
 }
 
 function MonthView({ cursor, events, onMoveEvent, onClickDate, onClickEvent }: { cursor: Date; events: CalItem[]; onMoveEvent: (id: string, d: string) => void; onClickDate: (d: Date) => void; onClickEvent: (e: CalItem) => void }) {
+  const { t } = useLane();
   const year = cursor.getFullYear();
   const month = cursor.getMonth();
   const firstDay = new Date(year, month, 1);
@@ -201,14 +217,14 @@ function MonthView({ cursor, events, onMoveEvent, onClickDate, onClickEvent }: {
     const date = new Date(year, month, dayNum);
     cells.push({ date, inMonth: dayNum >= 1 && dayNum <= daysInMonth });
   }
-  const todayStr = "2026-05-21";
+  const todayStr = todayIso();
   const eventsForDay = (date: Date) => events.filter((e) => e.date === formatDate(date));
   const [dragOver, setDragOver] = useState<string | null>(null);
 
   return (
     <div className="cal-grid-month">
-      {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => (
-        <div key={d} className="cal-day-header">{d}</div>
+      {["weekday.sun", "weekday.mon", "weekday.tue", "weekday.wed", "weekday.thu", "weekday.fri", "weekday.sat"].map((d) => (
+        <div key={d} className="cal-day-header">{t(d)}</div>
       ))}
       {cells.map((c, i) => {
         const dayEvents = eventsForDay(c.date);
@@ -242,7 +258,7 @@ function MonthView({ cursor, events, onMoveEvent, onClickDate, onClickEvent }: {
                 <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ev.title}</span>
               </div>
             ))}
-            {dayEvents.length > 3 && <div className="text-xs muted" style={{ paddingLeft: 4 }}>+{dayEvents.length - 3} more</div>}
+            {dayEvents.length > 3 && <div className="text-xs muted" style={{ paddingLeft: 4 }}>+{dayEvents.length - 3} {t("cal.more")}</div>}
           </div>
         );
       })}
@@ -251,6 +267,8 @@ function MonthView({ cursor, events, onMoveEvent, onClickDate, onClickEvent }: {
 }
 
 function WeekView({ cursor, events, onMoveEvent, onClickEvent, onClickSlot }: { cursor: Date; events: CalItem[]; onMoveEvent: (id: string, d: string) => void; onClickEvent: (e: CalItem) => void; onClickSlot: (d: string, h: number) => void }) {
+  const { t, lang } = useLane();
+  const loc = localeOf(lang);
   const weekStart = getWeekStart(cursor);
   const days = [...Array(7)].map((_, i) => {
     const d = new Date(weekStart);
@@ -273,11 +291,11 @@ function WeekView({ cursor, events, onMoveEvent, onClickEvent, onClickSlot }: { 
       {days.map((d, i) => {
         const dStr = formatDate(d);
         const dayEvents = events.filter((ev) => ev.date === dStr);
-        const isToday = dStr === "2026-05-21";
+        const isToday = dStr === todayIso();
         return (
           <div key={i} className="cal-week-col">
-            <div className="cal-week-col-header" style={{ color: isToday ? "var(--accent)" : undefined }}>
-              {d.toLocaleDateString("en-US", { weekday: "short" })}
+            <div className="cal-week-col-header" style={{ color: isToday ? "var(--accent)" : undefined, textTransform: "capitalize" }}>
+              {d.toLocaleDateString(loc, { weekday: "short" })}
               <b style={{ color: isToday ? "var(--accent)" : "var(--fg-1)" }}>{d.getDate()}</b>
             </div>
             <div style={{ position: "relative" }}>
@@ -309,7 +327,7 @@ function WeekView({ cursor, events, onMoveEvent, onClickEvent, onClickSlot }: { 
                     onClick={(e) => { e.stopPropagation(); onClickEvent(ev); }}
                     style={{ top, height, color: catColor(ev.category), background: catBg(ev.category), borderLeftColor: catColor(ev.category) }}
                   >
-                    <div className="mono text-xs" style={{ opacity: 0.8 }}>{ev.isRace ? `${ev.athletes.length} entered` : formatHour(ev.startHour)}</div>
+                    <div className="mono text-xs" style={{ opacity: 0.8 }}>{ev.isRace ? `${ev.athletes.length} ${t("cal.entered")}` : formatHour(ev.startHour)}</div>
                     <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ev.title}</div>
                   </div>
                 );
@@ -323,6 +341,8 @@ function WeekView({ cursor, events, onMoveEvent, onClickEvent, onClickSlot }: { 
 }
 
 function DayView({ cursor, events, athletes, onClickEvent, onClickSlot }: { cursor: Date; events: CalItem[]; athletes: Athlete[]; onClickEvent: (e: CalItem) => void; onClickSlot: (d: string, h: number) => void }) {
+  const { t, lang } = useLane();
+  const loc = localeOf(lang);
   const dStr = formatDate(cursor);
   const byId = new Map(athletes.map((a) => [a.id, a]));
   const hours = [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21];
@@ -364,10 +384,10 @@ function DayView({ cursor, events, athletes, onClickEvent, onClickSlot }: { curs
       </div>
       <div className="col" style={{ gap: 12 }}>
         <div className="card">
-          <div className="card-header"><div className="card-title">{cursor.toLocaleDateString("en-US", { weekday: "long" })} agenda</div></div>
+          <div className="card-header"><div className="card-title" style={{ textTransform: "capitalize" }}>{cursor.toLocaleDateString(loc, { weekday: "long" })} {t("cal.agenda")}</div></div>
           <div style={{ padding: "8px 0" }}>
             {dayEvents.length === 0 ? (
-              <EmptyState icon="calendar" title="Nothing scheduled" />
+              <EmptyState icon="calendar" title={t("cal.nothing")} />
             ) : (
               dayEvents.map((ev) => {
                 const roster = ev.athletes.map((id) => byId.get(id)).filter(Boolean) as Athlete[];
@@ -376,7 +396,7 @@ function DayView({ cursor, events, athletes, onClickEvent, onClickSlot }: { curs
                     <div className="mono text-sm fw-600" style={{ width: 50, color: "var(--accent)" }}>{ev.isRace ? <Icon name="trophy" size={14} /> : formatHour(ev.startHour)}</div>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div className="fw-600 text-md">{ev.title}</div>
-                      <div className="text-xs muted">{ev.isRace ? `${roster.length} athlete${roster.length === 1 ? "" : "s"} entered${ev.location ? ` · ${ev.location}` : ""}` : `${ev.duration}h · ${ev.location}`}</div>
+                      <div className="text-xs muted">{ev.isRace ? `${roster.length} ${roster.length === 1 ? t("cal.athleteWord") : t("cal.athletesWord")} ${t("cal.entered")}${ev.location ? ` · ${ev.location}` : ""}` : `${ev.duration}h · ${ev.location}`}</div>
                       {roster.length > 0 && (
                         <div className="row" style={{ gap: 4, marginTop: 6, flexWrap: "wrap" }}>
                           {roster.slice(0, 6).map((a) => <Avatar key={a.id} name={`${a.first} ${a.last}`} color={a.color} size="xs" />)}
@@ -415,11 +435,12 @@ function EventEditDrawer({
   onSave: (data: any) => void;
   onDelete?: () => void;
 }) {
+  const { t } = useLane();
   const init: any =
     event || {
       title: "",
       category: "training" as CalendarCategory,
-      date: typeof initialDate === "object" && initialDate?.date ? initialDate.date : initialDate ? formatDate(initialDate) : "2026-05-21",
+      date: typeof initialDate === "object" && initialDate?.date ? initialDate.date : initialDate ? formatDate(initialDate) : todayIso(),
       startHour: typeof initialDate === "object" && initialDate?.startHour ? initialDate.startHour : 9,
       duration: 1.5,
       location: "",
@@ -435,8 +456,8 @@ function EventEditDrawer({
 
   const submit = () => {
     const e: Record<string, string> = {};
-    if (!form.title) e.title = "Title required";
-    if (!form.date) e.date = "Date required";
+    if (!form.title) e.title = t("cal.titleRequired");
+    if (!form.date) e.date = t("cal.dateRequired");
     setErrors(e);
     if (Object.keys(e).length === 0) {
       onSave({ ...form, id: form.id || "e" + Math.random().toString(36).slice(2, 6) });
@@ -459,29 +480,29 @@ function EventEditDrawer({
     <Drawer
       open={true}
       onClose={onClose}
-      title={isNew ? "New event" : "Edit event"}
+      title={isNew ? t("cal.newEvent") : t("cal.editEvent")}
       footer={
         <>
-          {!isNew && onDelete && <button className="btn btn-ghost" onClick={onDelete} style={{ color: "var(--danger)", marginRight: "auto" }}><Icon name="trash" size={13} /> Delete</button>}
-          <button className="btn btn-secondary" onClick={onClose}>Cancel</button>
-          <button className="btn btn-primary" onClick={submit}>{isNew ? "Create event" : "Save changes"}</button>
+          {!isNew && onDelete && <button className="btn btn-ghost" onClick={onDelete} style={{ color: "var(--danger)", marginRight: "auto" }}><Icon name="trash" size={13} /> {t("common.delete")}</button>}
+          <button className="btn btn-secondary" onClick={onClose}>{t("common.cancel")}</button>
+          <button className="btn btn-primary" onClick={submit}>{isNew ? t("cal.createEvent") : t("cal.saveChanges")}</button>
         </>
       }
     >
       <div className="col" style={{ gap: 14 }}>
         <div className="field">
-          <label className="field-label">Title</label>
-          <input className="input" placeholder="e.g. Speed Endurance Session" value={form.title} onChange={(e) => update("title", e.target.value)} aria-invalid={!!errors.title} autoFocus />
+          <label className="field-label">{t("cal.fTitle")}</label>
+          <input className="input" placeholder={t("cal.fTitlePlaceholder")} value={form.title} onChange={(e) => update("title", e.target.value)} aria-invalid={!!errors.title} autoFocus />
           {errors.title && <span className="field-error"><Icon name="alert" size={11} /> {errors.title}</span>}
         </div>
         <div className="field">
-          <label className="field-label">Category</label>
+          <label className="field-label">{t("cal.category")}</label>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 6 }}>
             {[
-              { v: "training", l: "Training", c: "var(--success)", i: "activity" },
-              { v: "competition", l: "Competition", c: "var(--danger)", i: "trophy" },
-              { v: "travel", l: "Travel", c: "var(--warning)", i: "globe" },
-              { v: "meeting", l: "Meeting", c: "var(--accent)", i: "users" },
+              { v: "training", l: t("cal.catTraining"), c: "var(--success)", i: "activity" },
+              { v: "competition", l: t("cal.catCompetition"), c: "var(--danger)", i: "trophy" },
+              { v: "travel", l: t("cal.catTravel"), c: "var(--warning)", i: "globe" },
+              { v: "meeting", l: t("cal.catMeeting"), c: "var(--accent)", i: "users" },
             ].map((opt) => (
               <button
                 key={opt.v}
@@ -509,11 +530,11 @@ function EventEditDrawer({
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr 1fr", gap: 10 }}>
           <div className="field">
-            <label className="field-label">Date</label>
+            <label className="field-label">{t("cal.date")}</label>
             <input type="date" className="input" value={form.date} onChange={(e) => update("date", e.target.value)} />
           </div>
           <div className="field">
-            <label className="field-label">Start</label>
+            <label className="field-label">{t("cal.start")}</label>
             <input
               type="time"
               className="input"
@@ -525,14 +546,14 @@ function EventEditDrawer({
             />
           </div>
           <div className="field">
-            <label className="field-label">Duration</label>
+            <label className="field-label">{t("cal.duration")}</label>
             <select className="input" value={form.duration} onChange={(e) => update("duration", Number(e.target.value))}>
-              <option value="0.5">30 min</option>
-              <option value="1">1 hour</option>
-              <option value="1.5">1.5 hours</option>
-              <option value="2">2 hours</option>
-              <option value="3">3 hours</option>
-              <option value="4">4 hours</option>
+              <option value="0.5">{t("cal.dur30")}</option>
+              <option value="1">{t("cal.dur1")}</option>
+              <option value="1.5">{t("cal.dur15")}</option>
+              <option value="2">{t("cal.dur2")}</option>
+              <option value="3">{t("cal.dur3")}</option>
+              <option value="4">{t("cal.dur4")}</option>
             </select>
           </div>
         </div>
@@ -541,23 +562,23 @@ function EventEditDrawer({
           <div className="card card-pad row" style={{ gap: 10, background: "var(--warning-soft)", borderColor: "var(--warning)", padding: 12 }}>
             <Icon name="warningTri" size={18} style={{ color: "var(--warning)", flexShrink: 0 }} />
             <div style={{ flex: 1 }}>
-              <div className="fw-700 text-sm">Schedule conflict</div>
-              <div className="text-xs muted">Overlaps with <b>{conflict.title}</b> at {formatHour(conflict.startHour)}.</div>
+              <div className="fw-700 text-sm">{t("cal.conflict")}</div>
+              <div className="text-xs muted">{t("cal.overlaps")} <b>{conflict.title}</b> {t("cal.at")} {formatHour(conflict.startHour)}.</div>
             </div>
-            <button className="btn btn-secondary btn-sm">Resolve</button>
+            <button className="btn btn-secondary btn-sm">{t("cal.resolve")}</button>
           </div>
         )}
 
         <div className="field">
-          <label className="field-label">Location</label>
+          <label className="field-label">{t("cal.location")}</label>
           <div className="input-group">
             <Icon name="pin" size={14} />
-            <input className="input" placeholder="e.g. Track 1, Lane Gym" value={form.location} onChange={(e) => update("location", e.target.value)} />
+            <input className="input" placeholder={t("cal.locationPlaceholder")} value={form.location} onChange={(e) => update("location", e.target.value)} />
           </div>
         </div>
 
         <div className="field">
-          <label className="field-label">Assign athletes <span className="muted text-xs" style={{ fontWeight: 400 }}>· {form.athletes.length} selected</span></label>
+          <label className="field-label">{t("cal.assignAthletes")} <span className="muted text-xs" style={{ fontWeight: 400 }}>· {form.athletes.length} {t("cal.selected")}</span></label>
           <div className="card" style={{ padding: 6, maxHeight: 220, overflowY: "auto" }}>
             {athletes.map((a) => {
               const on = form.athletes.includes(a.id);
@@ -578,20 +599,20 @@ function EventEditDrawer({
         </div>
 
         <div className="field">
-          <label className="field-label">Reminders</label>
+          <label className="field-label">{t("cal.reminders")}</label>
           <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
-            <Tag>1 day before</Tag>
-            <Tag>1 hour before</Tag>
-            <button className="btn btn-ghost btn-sm"><Icon name="plus" size={12} /> Add</button>
+            <Tag>{t("cal.dayBefore")}</Tag>
+            <Tag>{t("cal.hourBefore")}</Tag>
+            <button className="btn btn-ghost btn-sm"><Icon name="plus" size={12} /> {t("common.add")}</button>
           </div>
         </div>
 
         <div className="card card-pad" style={{ background: "var(--bg-2)", padding: 12 }}>
           <div className="row">
             <Icon name="cloud" size={14} style={{ color: "var(--success)" }} />
-            <div className="text-xs fw-600" style={{ color: "var(--success)" }}>Auto-saving</div>
+            <div className="text-xs fw-600" style={{ color: "var(--success)" }}>{t("cal.autosaving")}</div>
             <span className="spacer" />
-            <span className="text-xs muted mono">Synced 2 sec ago</span>
+            <span className="text-xs muted mono">{t("cal.synced")}</span>
           </div>
         </div>
       </div>
