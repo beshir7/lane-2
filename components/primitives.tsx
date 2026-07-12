@@ -183,7 +183,7 @@ export function Drawer({
   title: ReactNode;
   children: ReactNode;
   footer?: ReactNode;
-  size?: "lg";
+  size?: "lg" | "xl";
 }) {
   useEffect(() => {
     if (!open) return;
@@ -196,7 +196,7 @@ export function Drawer({
   if (!open) return null;
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className={`drawer ${size === "lg" ? "drawer-lg" : ""}`} onClick={(e) => e.stopPropagation()}>
+      <div className={`drawer ${size ? `drawer-${size}` : ""}`} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <div className="modal-title">{title}</div>
           <button className="icon-btn" onClick={onClose}>

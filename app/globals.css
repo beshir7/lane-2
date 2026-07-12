@@ -1077,6 +1077,7 @@ textarea.input {
   z-index: 100;
 }
 .drawer-lg { max-width: 640px; }
+.drawer-xl { max-width: min(880px, 92vw); }
 
 /* =========================================================================
    TOASTS

@@ -4,7 +4,7 @@
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "@/components/icon";
-import { Avatar, Badge, ConfirmModal, Modal, Segmented, Tabs } from "@/components/primitives";
+import { Avatar, Badge, ConfirmModal, Drawer, Modal, Segmented, Tabs } from "@/components/primitives";
 import { DateStack, EntryStatusBadge } from "@/components/shared";
 import { PlacementStats } from "@/components/placement-stats";
 import { useLane } from "@/components/lane-provider";
@@ -225,7 +225,7 @@ export function CompStatusBadge({ status }: { status: string }) {
 
 export function CompetitionsScreen() {
   const { competitions, athletes, organizers, entries, navigate, createCompetition, t } = useLane();
-  const [view, setView] = useState<"table" | "cards">("table");
+  const [view, setView] = useState<"cards" | "list">("cards");
   const [filter, setFilter] = useState<"all" | CompetitionStatus>("all");
   const [catQuery, setCatQuery] = useState("");
   const [catHistory, setCatHistory] = useState<string[]>([]);
@@ -321,76 +321,78 @@ export function CompetitionsScreen() {
             <input className="input" style={{ flex: 1, minWidth: 0, width: "auto", paddingRight: monthFilter ? 30 : 10 }} type="month" value={monthFilter} onChange={(e) => setMonthFilter(e.target.value)} />
             {monthFilter && <button className="icon-btn" style={{ position: "absolute", right: 4, flex: "none" }} title={t("common.clear")} onClick={() => setMonthFilter("")}><Icon name="close" size={13} /></button>}
           </div>
-          <Segmented options={[{ value: "table", icon: "list", label: "Table" }, { value: "cards", icon: "grid", label: "Cards" }]} value={view} onChange={setView} />
+          <Segmented options={[{ value: "cards", icon: "grid", label: "Grid" }, { value: "list", icon: "list", label: "List" }]} value={view} onChange={setView} />
         </div>
       </div>
 
       {view === "cards" ? (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 12 }}>
-          {filtered.map((c) => <CompetitionCard key={c.id} c={c} athletes={athletes} onOpen={() => navigate("competition-detail", c.id)} />)}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 12 }}>
+          {filtered.map((c) => <CompetitionCard key={c.id} c={c} athletes={athletes} entries={entries} onPeek={() => setSelectedRaceId(c.id)} />)}
+          {filtered.length === 0 && <div className="card card-pad text-sm muted" style={{ gridColumn: "1 / -1" }}>No races match your filters.</div>}
         </div>
       ) : (
         <div className="col" style={{ gap: 12 }}>
-          <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
-            {/* LEFT — races list (Data · Competizione · Nazione), 10 per page (photo_25) */}
-            <div className="card" style={{ flex: 1, minWidth: 0, overflow: "hidden" }}>
-              <div className="table-wrap">
-                <table className="table">
-                  <thead>
-                    <tr><th style={{ width: 104 }}>Date</th><th>Competition</th><th style={{ width: 64 }}>Nation</th></tr>
-                  </thead>
-                  <tbody>
-                    {paged.map((c) => (
-                      <tr key={c.id}
-                        onClick={() => setSelectedRaceId(c.id)}
-                        onDoubleClick={() => navigate("competition-detail", c.id)}
-                        style={{ cursor: "pointer", background: c.id === selectedRaceId ? "var(--accent-soft)" : undefined }}>
-                        <td className="text-sm mono" style={{ whiteSpace: "nowrap" }}>{c.date}</td>
-                        <td>
-                          <div className="row" style={{ gap: 8 }}>
-                            <span title={raceColorKey(c.date)} style={{ width: 8, height: 8, borderRadius: 999, background: raceColor(c.date), flex: "none" }} />
-                            <span className="fw-600" style={{ color: raceColor(c.date) }}>{c.name}</span>
-                            {c.level && <span className="text-xs muted">· {c.level}</span>}
-                          </div>
-                        </td>
-                        <td className="text-sm mono">{c.country || "—"}</td>
-                      </tr>
-                    ))}
-                    {paged.length === 0 && <tr><td colSpan={3} className="text-sm muted" style={{ padding: 16 }}>No races match your filters.</td></tr>}
-                  </tbody>
-                </table>
-              </div>
-              <div style={{ padding: "8px 14px", display: "flex", alignItems: "center", justifyContent: "space-between", borderTop: "1px solid var(--border-1)" }}>
-                <span className="text-xs muted">{filtered.length === 0 ? "0" : `${safePage * PAGE_SIZE + 1}–${Math.min(filtered.length, safePage * PAGE_SIZE + PAGE_SIZE)}`} / {filtered.length}</span>
-                <div className="row" style={{ gap: 6, alignItems: "center" }}>
-                  <button className="btn btn-secondary btn-sm" disabled={safePage <= 0} onClick={() => setPage(safePage - 1)}><Icon name="chevronLeft" size={13} /> Prev</button>
-                  <span className="text-xs muted mono">{safePage + 1}/{pageCount}</span>
-                  <button className="btn btn-secondary btn-sm" disabled={safePage >= pageCount - 1} onClick={() => setPage(safePage + 1)}>Next <Icon name="chevronRight" size={13} /></button>
-                </div>
+          {/* Full-width races list (Data · Competizione · Nazione), 10 per page. */}
+          <div className="card" style={{ overflow: "hidden" }}>
+            <div className="table-wrap">
+              <table className="table">
+                <thead>
+                  <tr><th style={{ width: 104 }}>Date</th><th>Competition</th><th style={{ width: 90 }}>Type</th><th style={{ width: 80 }}>Entries</th><th style={{ width: 64 }}>Nation</th></tr>
+                </thead>
+                <tbody>
+                  {paged.map((c) => (
+                    <tr key={c.id}
+                      onClick={() => setSelectedRaceId(c.id)}
+                      onDoubleClick={() => navigate("competition-detail", c.id)}
+                      style={{ cursor: "pointer", background: c.id === selectedRaceId ? "var(--accent-soft)" : undefined }}>
+                      <td className="text-sm mono" style={{ whiteSpace: "nowrap" }}>{c.date}</td>
+                      <td>
+                        <div className="row" style={{ gap: 8 }}>
+                          <span title={raceColorKey(c.date)} style={{ width: 8, height: 8, borderRadius: 999, background: raceColor(c.date), flex: "none" }} />
+                          <span className="fw-600" style={{ color: raceColor(c.date) }}>{c.name}</span>
+                          {c.level && <span className="text-xs muted">· {c.level}</span>}
+                        </div>
+                      </td>
+                      <td className="text-sm muted">{c.category || "—"}</td>
+                      <td className="text-sm mono">{c.entries || 0}</td>
+                      <td className="text-sm mono">{c.country || "—"}</td>
+                    </tr>
+                  ))}
+                  {paged.length === 0 && <tr><td colSpan={5} className="text-sm muted" style={{ padding: 16 }}>No races match your filters.</td></tr>}
+                </tbody>
+              </table>
+            </div>
+            <div style={{ padding: "8px 14px", display: "flex", alignItems: "center", justifyContent: "space-between", borderTop: "1px solid var(--border-1)" }}>
+              <span className="text-xs muted">{filtered.length === 0 ? "0" : `${safePage * PAGE_SIZE + 1}–${Math.min(filtered.length, safePage * PAGE_SIZE + PAGE_SIZE)}`} / {filtered.length}</span>
+              <div className="row" style={{ gap: 6, alignItems: "center" }}>
+                <button className="btn btn-secondary btn-sm" disabled={safePage <= 0} onClick={() => setPage(safePage - 1)}><Icon name="chevronLeft" size={13} /> Prev</button>
+                <span className="text-xs muted mono">{safePage + 1}/{pageCount}</span>
+                <button className="btn btn-secondary btn-sm" disabled={safePage >= pageCount - 1} onClick={() => setPage(safePage + 1)}>Next <Icon name="chevronRight" size={13} /></button>
               </div>
             </div>
-
-            {/* RIGHT — athletes competing in the selected race (Nome · Disciplina · Posizione · Tempo) */}
-            <RaceEntriesPanel
-              race={selectedRace}
-              entries={selectedEntries}
-              athletes={athletes}
-              onEditResult={setResultFor}
-              onEditEntry={setEditEntry}
-              onOpen={() => selectedRaceId && navigate("competition-detail", selectedRaceId)}
-            />
           </div>
-
-          <div className="card" style={{ padding: 0 }}><RaceLegend /></div>
-
-          {/* Placement statistics below the competition table (photo_28). */}
-          {hasResults && (
-            <div className="card card-pad">
-              <PlacementStats entries={raceEntries} totalLabelKey="stats.results" title={t("stats.allRaces")} />
-            </div>
-          )}
         </div>
       )}
+
+      <div className="card" style={{ padding: 0, marginTop: 12 }}><RaceLegend /></div>
+
+      {/* Placement statistics across the races in view (photo_28). */}
+      {hasResults && (
+        <div className="card card-pad" style={{ marginTop: 12 }}>
+          <PlacementStats entries={raceEntries} totalLabelKey="stats.results" title={t("stats.allRaces")} />
+        </div>
+      )}
+
+      {/* Peek: quick-look of the race — its entered athletes — before opening it. */}
+      <RacePeek
+        race={selectedRace}
+        entries={selectedEntries}
+        athletes={athletes}
+        onEditResult={setResultFor}
+        onEditEntry={setEditEntry}
+        onClose={() => setSelectedRaceId(null)}
+        onOpen={() => selectedRaceId && navigate("competition-detail", selectedRaceId)}
+      />
 
       {resultFor && <ResultModal entry={resultFor} athletes={athletes} onClose={() => setResultFor(null)} />}
       {editEntry && <EntryEditModal entry={editEntry} race={competitions.find((c) => c.id === editEntry.competitionId) || null} athletes={athletes} onClose={() => setEditEntry(null)} />}
@@ -405,12 +407,13 @@ const ENTRY_STATUS_KEYS: EntryStatus[] = ["proposed", "waiting", "accepted", "ok
 // · Time, coloured by placement. Right-clicking a row opens the athlete's race
 // menu (photo_23): edit info (athlete/discipline), edit result, set status
 // (Da proporre / Lista attesa / Accettato / OK), or open the athlete.
-function RaceEntriesPanel({ race, entries, athletes, onEditResult, onEditEntry, onOpen }: {
+function RacePeek({ race, entries, athletes, onEditResult, onEditEntry, onClose, onOpen }: {
   race: Competition | null;
   entries: RaceEntry[];
   athletes: Athlete[];
   onEditResult: (e: RaceEntry) => void;
   onEditEntry: (e: RaceEntry) => void;
+  onClose: () => void;
   onOpen: () => void;
 }) {
   const { updateEntry, navigate, t } = useLane();
@@ -427,17 +430,6 @@ function RaceEntriesPanel({ race, entries, athletes, onEditResult, onEditEntry, 
     return () => { window.removeEventListener("click", close); window.removeEventListener("scroll", close, true); };
   }, [menu]);
 
-  if (!race) {
-    return (
-      <div className="card" style={{ flex: 1, minWidth: 0 }}>
-        <div className="col" style={{ alignItems: "center", justifyContent: "center", gap: 10, padding: 48, textAlign: "center", minHeight: 300 }}>
-          <Icon name="trophy" size={30} style={{ color: "var(--fg-3)" }} />
-          <div className="text-sm muted" style={{ maxWidth: 300 }}>Select a race to see the athletes competing, with their discipline, position and time.</div>
-        </div>
-      </div>
-    );
-  }
-
   const menuItem: React.CSSProperties = { display: "flex", alignItems: "center", gap: 8, padding: "7px 10px", borderRadius: 4, textAlign: "left", fontSize: 13, background: "transparent", color: "var(--fg-1)", width: "100%" };
   const hoverOn = (e: React.MouseEvent<HTMLElement>) => (e.currentTarget.style.background = "var(--bg-2)");
   const hoverOff = (e: React.MouseEvent<HTMLElement>) => (e.currentTarget.style.background = "transparent");
@@ -446,18 +438,31 @@ function RaceEntriesPanel({ race, entries, athletes, onEditResult, onEditEntry, 
   const menuTop = menu ? Math.min(menu.y, (typeof window !== "undefined" ? window.innerHeight : 800) - 320) : 0;
 
   return (
-    <div className="card" style={{ flex: 1, minWidth: 0, overflow: "hidden" }}>
-      <div className="card-header">
-        <div className="row" style={{ gap: 8, alignItems: "baseline", minWidth: 0 }}>
-          <div className="card-title" style={{ color: raceColor(race.date) }}>{race.name}</div>
-          <span className="text-sm muted">{race.location}</span>
+    <Drawer
+      open={!!race}
+      onClose={onClose}
+      size="xl"
+      title={race ? <span style={{ color: raceColor(race.date) }}>{race.name}</span> : ""}
+      footer={
+        <>
+          <button className="btn btn-secondary" onClick={onClose}>{t("common.close")}</button>
+          <button className="btn btn-primary" onClick={() => { onOpen(); onClose(); }}><Icon name="external" size={13} /> Open race</button>
+        </>
+      }
+    >
+      {race && (
+      <div className="col" style={{ gap: 14 }}>
+        <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+          <PeekMeta label="Date" value={race.date || "—"} mono />
+          <PeekMeta label="Venue" value={[race.location, race.country].filter(Boolean).join(", ") || "—"} />
+          {race.level && <PeekMeta label="Level" value={race.level} />}
+          <PeekMeta label="Entries" value={String(entries.length)} />
         </div>
-        <button className="btn btn-secondary btn-sm" onClick={onOpen}><Icon name="external" size={13} /> Open race</button>
-      </div>
-      <div className="table-wrap" style={{ maxHeight: "calc(100vh - 430px)", minHeight: 200, overflowY: "auto" }}>
+      <div className="card" style={{ overflow: "hidden" }}>
+      <div className="table-wrap" style={{ maxHeight: "calc(100vh - 360px)", overflowY: "auto" }}>
         <table className="table" style={{ margin: 0 }}>
           <thead>
-            <tr><th>Name</th><th>Discipline</th><th style={{ width: 96 }}>Status</th><th style={{ width: 64 }}>Pos.</th><th style={{ width: 82 }}>Time</th><th style={{ width: 40 }}></th></tr>
+            <tr><th>Name</th><th>Discipline</th><th style={{ width: 96 }}>Status</th><th style={{ width: 60 }}>Pos.</th><th style={{ width: 78 }}>Time</th><th style={{ width: 40 }}></th></tr>
           </thead>
           <tbody>
             {entries.length === 0 ? (
@@ -488,10 +493,13 @@ function RaceEntriesPanel({ race, entries, athletes, onEditResult, onEditEntry, 
           </tbody>
         </table>
       </div>
-      <div className="row" style={{ gap: 8, padding: "12px 14px", borderTop: "1px solid var(--border-1)", color: "var(--accent)" }}>
-        <Icon name="info" size={16} />
-        <span className="fw-700" style={{ fontSize: 15 }}>Right-click an athlete to edit info, result or status.</span>
       </div>
+      <div className="row" style={{ gap: 8, color: "var(--fg-3)" }}>
+        <Icon name="info" size={14} />
+        <span className="text-xs">Right-click an athlete to edit info, result or status · double-click to enter a result.</span>
+      </div>
+      </div>
+      )}
 
       {menu && (
         <div style={{ position: "fixed", top: menuTop, left: menuLeft, zIndex: 50, width: 224, background: "var(--bg-1)", border: "1px solid var(--border-2)", borderRadius: "var(--r-md)", boxShadow: "var(--shadow-lift)", padding: 4 }}>
@@ -509,6 +517,15 @@ function RaceEntriesPanel({ race, entries, athletes, onEditResult, onEditEntry, 
           <button style={menuItem} onMouseEnter={hoverOn} onMouseLeave={hoverOff} onClick={() => { navigate("athlete-detail", menu.entry.athleteId); setMenu(null); }}><Icon name="external" size={13} /> Show athlete info</button>
         </div>
       )}
+    </Drawer>
+  );
+}
+
+function PeekMeta({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+  return (
+    <div className="card card-pad" style={{ padding: "8px 12px", minWidth: 90 }}>
+      <div className="text-xs muted" style={{ textTransform: "uppercase", letterSpacing: "0.04em" }}>{label}</div>
+      <div className={`fw-700${mono ? " mono" : ""}`} style={{ fontSize: 13, marginTop: 2 }}>{value}</div>
     </div>
   );
 }
@@ -548,9 +565,12 @@ function EntryEditModal({ entry, race, athletes, onClose }: { entry: RaceEntry; 
   );
 }
 
-function CompetitionCard({ c, athletes, onOpen }: { c: Competition; athletes: Athlete[]; onOpen: () => void }) {
+function CompetitionCard({ c, athletes, entries, onPeek }: { c: Competition; athletes: Athlete[]; entries: RaceEntry[]; onPeek: () => void }) {
+  // The athletes actually entered in this race (for the avatar stack).
+  const entered = entries.filter((e) => e.competitionId === c.id);
+  const enteredAthletes = entered.map((e) => athletes.find((a) => a.id === e.athleteId)).filter(Boolean) as Athlete[];
   return (
-    <button className="card" onClick={onOpen} style={{ padding: 0, textAlign: "left", overflow: "hidden", cursor: "pointer" }}>
+    <button className="card" onClick={onPeek} style={{ padding: 0, textAlign: "left", overflow: "hidden", cursor: "pointer" }}>
       <div
         style={{
           padding: 16,
@@ -564,11 +584,13 @@ function CompetitionCard({ c, athletes, onOpen }: { c: Competition; athletes: At
           borderBottom: "1px solid var(--border-1)",
         }}
       >
+        {/* Race-calendar colour bar (past/today/upcoming/next-year). */}
+        <span style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 3, background: raceColor(c.date) }} />
         <div className="row">
           <DateStack date={c.date} />
-          <div style={{ flex: 1 }}>
-            <div className="display fw-700" style={{ fontSize: 16, letterSpacing: "-0.02em" }}>{c.short || c.name}</div>
-            <div className="text-sm muted">{c.location}</div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div className="display fw-700" style={{ fontSize: 16, letterSpacing: "-0.02em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.short || c.name}</div>
+            <div className="text-sm muted">{c.location}{c.level ? ` · ${c.level}` : ""}</div>
           </div>
           <CompStatusBadge status={c.status} />
         </div>
@@ -577,16 +599,17 @@ function CompetitionCard({ c, athletes, onOpen }: { c: Competition; athletes: At
         <div>
           <div className="text-xs muted mono fw-700" style={{ textTransform: "uppercase", letterSpacing: "0.05em" }}>Events</div>
           <div style={{ marginTop: 6, display: "flex", flexWrap: "wrap", gap: 4 }}>
-            {c.events.map((e) => <span key={e} className="tag">{e}</span>)}
+            {c.events.length ? c.events.slice(0, 6).map((e) => <span key={e} className="tag">{e}</span>) : <span className="text-sm muted">—</span>}
+            {c.events.length > 6 && <span className="tag">+{c.events.length - 6}</span>}
           </div>
         </div>
         <div className="row" style={{ borderTop: "1px solid var(--border-1)", paddingTop: 12 }}>
-          <div className="text-xs muted">Entries</div>
+          <div className="text-xs muted">{entered.length} {entered.length === 1 ? "entry" : "entries"}</div>
           <div className="spacer" />
-          {c.entries > 0 ? (
+          {enteredAthletes.length > 0 ? (
             <div className="avatar-stack">
-              {athletes.slice(0, Math.min(c.entries, 4)).map((a) => <Avatar key={a.id} name={a.first + " " + a.last} color={a.color} size="xs" />)}
-              {c.entries > 4 && <span className="avatar avatar-xs" style={{ background: "var(--bg-3)", color: "var(--fg-2)" }}>+{c.entries - 4}</span>}
+              {enteredAthletes.slice(0, 4).map((a) => <Avatar key={a.id} name={a.first + " " + a.last} color={a.color} size="xs" />)}
+              {enteredAthletes.length > 4 && <span className="avatar avatar-xs" style={{ background: "var(--bg-3)", color: "var(--fg-2)" }}>+{enteredAthletes.length - 4}</span>}
             </div>
           ) : (
             <span className="muted text-sm">None yet</span>
