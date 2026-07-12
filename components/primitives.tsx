@@ -151,7 +151,7 @@ export function ConfirmModal({
 }: {
   title: ReactNode;
   message: ReactNode;
-  choices: { label: string; variant?: "primary" | "secondary" | "ghost"; onClick: () => void }[];
+  choices: { label: string; variant?: "primary" | "secondary" | "ghost" | "danger"; onClick: () => void }[];
   onCancel: () => void;
 }) {
   return (

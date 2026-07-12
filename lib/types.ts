@@ -302,6 +302,9 @@ export interface AppNotification {
   time: string;
   unread: boolean;
   category: string;
+  // Where clicking the notification navigates (live competition-derived items).
+  page?: string;
+  arg?: string;
 }
 
 export interface ActivityItem {

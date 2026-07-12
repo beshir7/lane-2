@@ -62,9 +62,9 @@ export function CompetitionDetail({ competitionId }: { competitionId: string }) 
               <div className="text-md muted" style={{ marginTop: 4 }}>{competition.location}</div>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "auto auto auto", gap: 28 }}>
-              <CompStat n={compEntries.length} l="Entries" />
-              <CompStat n={disciplines.length} l="Disciplines" />
-              <CompStat n={withResults.length} l="Results" />
+              <CompStat n={compEntries.length} l={t("cd.entries")} />
+              <CompStat n={disciplines.length} l={t("cd.disciplines")} />
+              <CompStat n={withResults.length} l={t("cd.results")} />
             </div>
             <div className="col" style={{ gap: 6 }}>
               <button className="btn btn-primary" onClick={() => setShowAdd(true)}><Icon name="plus" size={13} /> {t("race.addAthletes")}</button>
@@ -78,10 +78,10 @@ export function CompetitionDetail({ competitionId }: { competitionId: string }) 
 
       <Tabs
         tabs={[
-          { value: "overview", label: "Overview" },
-          { value: "entries", label: "Entries", count: compEntries.length },
-          { value: "results", label: "Results", count: withResults.length },
-          { value: "disciplines", label: "Disciplines", count: disciplines.length },
+          { value: "overview", label: t("prof.overview") },
+          { value: "entries", label: t("cd.entries"), count: compEntries.length },
+          { value: "results", label: t("cd.results"), count: withResults.length },
+          { value: "disciplines", label: t("cd.disciplines"), count: disciplines.length },
         ]}
         value={tab}
         onChange={setTab}
@@ -115,12 +115,13 @@ export function CompetitionDetail({ competitionId }: { competitionId: string }) 
 
 // ---- Race sheet (printable "foglio gara", caption 25/26) ------------------
 function FoglioModal({ competition, organizer, entries, athletes, withAthletes, onClose }: { competition: Competition; organizer?: { name: string; phone: string; email: string }; entries: RaceEntry[]; athletes: Athlete[]; withAthletes: boolean; onClose: () => void }) {
+  const { t } = useLane();
   const nameOf = (id: string) => { const a = athletes.find((x) => x.id === id); return a ? `${a.first} ${a.last}` : id; };
   const exportCsv = () => downloadCsv(`foglio-${competition.short || competition.name}`, entries.map((e) => ({
     athlete: nameOf(e.athleteId), discipline: e.discipline, gender: e.gender, status: e.status, place: e.position ?? "", time: e.time,
   })));
   return (
-    <Modal open onClose={onClose} size="lg" title="Race sheet" footer={<><button className="btn btn-secondary" onClick={exportCsv}><Icon name="download" size={13} /> Export CSV</button><button className="btn btn-secondary" onClick={() => window.print()}><Icon name="fileText" size={13} /> Print</button><button className="btn btn-primary" onClick={onClose}>Close</button></>}>
+    <Modal open onClose={onClose} size="lg" title={t("cd.raceSheet")} footer={<><button className="btn btn-secondary" onClick={exportCsv}><Icon name="download" size={13} /> {t("cd.exportCsv")}</button><button className="btn btn-secondary" onClick={() => window.print()}><Icon name="fileText" size={13} /> {t("cd.print")}</button><button className="btn btn-primary" onClick={onClose}>{t("cd.close")}</button></>}>
       <div className="col" style={{ gap: 14 }}>
         <div>
           <div className="display fw-700" style={{ fontSize: 20 }}>{competition.name}</div>
@@ -128,16 +129,16 @@ function FoglioModal({ competition, organizer, entries, athletes, withAthletes, 
         </div>
         {organizer && (
           <div className="card card-pad">
-            <div className="text-xs mono fw-700 muted" style={{ textTransform: "uppercase" }}>Organizer</div>
+            <div className="text-xs mono fw-700 muted" style={{ textTransform: "uppercase" }}>{t("cd.organizer")}</div>
             <div className="fw-600" style={{ marginTop: 4 }}>{organizer.name}</div>
             <div className="text-sm muted">{organizer.phone} · {organizer.email}</div>
           </div>
         )}
         {withAthletes && (
         <table className="table">
-          <thead><tr><th>Athlete</th><th>Discipline</th><th>Status</th><th>Place</th><th>Time</th></tr></thead>
+          <thead><tr><th>{t("cd.athlete")}</th><th>{t("cd.discipline")}</th><th>{t("cd.status")}</th><th>{t("cd.place")}</th><th>{t("cd.time")}</th></tr></thead>
           <tbody>
-            {entries.length === 0 ? <tr><td colSpan={5} className="text-sm muted" style={{ padding: 14 }}>No entries.</td></tr> : entries.map((e) => (
+            {entries.length === 0 ? <tr><td colSpan={5} className="text-sm muted" style={{ padding: 14 }}>{t("cd.noEntries")}</td></tr> : entries.map((e) => (
               <tr key={e.id}>
                 <td className="fw-600">{nameOf(e.athleteId)}</td>
                 <td>{e.discipline} ({e.gender})</td>
@@ -164,16 +165,17 @@ function CompStat({ n, l }: { n: React.ReactNode; l: string }) {
 }
 
 function CompOverviewTab({ c, organizer, disciplines, entryCount }: { c: Competition; organizer?: { name: string; phone: string; email: string; nation: string }; disciplines: MeetingDiscipline[]; entryCount: number }) {
+  const { t } = useLane();
   return (
     <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 12 }}>
       <div className="col" style={{ gap: 12 }}>
         <div className="card">
-          <div className="card-header"><div className="card-title">Disciplines</div></div>
+          <div className="card-header"><div className="card-title">{t("cd.disciplines")}</div></div>
           <div style={{ padding: 14, display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 8 }}>
             {disciplines.map((d, i) => (
               <div key={i} className="card card-pad" style={{ padding: 12, textAlign: "center" }}>
                 <div className="display fw-700" style={{ fontSize: 14 }}>{d.discipline}</div>
-                <div className="text-xs muted mono" style={{ marginTop: 4 }}>{d.gender === "W" ? "Women" : "Men"}</div>
+                <div className="text-xs muted mono" style={{ marginTop: 4 }}>{d.gender === "W" ? t("cd.women") : t("cd.men")}</div>
               </div>
             ))}
           </div>
@@ -181,12 +183,12 @@ function CompOverviewTab({ c, organizer, disciplines, entryCount }: { c: Competi
 
         {c.status === "completed" && c.summary && (
           <div className="card">
-            <div className="card-header"><div className="card-title">Summary</div></div>
+            <div className="card-header"><div className="card-title">{t("cd.summary")}</div></div>
             <div style={{ padding: 22, display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14 }}>
-              <BigStat v={c.summary.gold} l="Gold" c="#f5b14c" />
-              <BigStat v={c.summary.silver} l="Silver" c="#c9d3df" />
-              <BigStat v={c.summary.bronze} l="Bronze" c="#c08c5e" />
-              <BigStat v={c.summary.points} l="Points" c="var(--accent)" />
+              <BigStat v={c.summary.gold} l={t("dash.gold")} c="#f5b14c" />
+              <BigStat v={c.summary.silver} l={t("dash.silver")} c="#c9d3df" />
+              <BigStat v={c.summary.bronze} l={t("dash.bronze")} c="#c08c5e" />
+              <BigStat v={c.summary.points} l={t("cd.points")} c="var(--accent)" />
             </div>
           </div>
         )}
@@ -194,17 +196,17 @@ function CompOverviewTab({ c, organizer, disciplines, entryCount }: { c: Competi
 
       <div className="col" style={{ gap: 12 }}>
         <div className="card card-pad">
-          <div className="card-title" style={{ marginBottom: 12 }}>Details</div>
+          <div className="card-title" style={{ marginBottom: 12 }}>{t("cd.details")}</div>
           <div className="col" style={{ gap: 10 }}>
-            <InfoRow icon="calendar" label="Date" value={c.date === c.endDate ? c.date : `${c.date} → ${c.endDate}`} />
-            <InfoRow icon="pin" label="Venue" value={c.location} />
-            <InfoRow icon="globe" label="Country" value={c.country} />
-            <InfoRow icon="trophy" label="Level" value={`${c.type}${c.level ? " · " + c.level : ""}`} />
-            <InfoRow icon="users" label="Entries" value={String(entryCount)} />
+            <InfoRow icon="calendar" label={t("cd.date")} value={c.date === c.endDate ? c.date : `${c.date} → ${c.endDate}`} />
+            <InfoRow icon="pin" label={t("cd.venue")} value={c.location} />
+            <InfoRow icon="globe" label={t("cd.country")} value={c.country} />
+            <InfoRow icon="trophy" label={t("cd.level")} value={`${c.type}${c.level ? " · " + c.level : ""}`} />
+            <InfoRow icon="users" label={t("cd.entries")} value={String(entryCount)} />
           </div>
         </div>
         <div className="card card-pad">
-          <div className="card-title" style={{ marginBottom: 8 }}>Race organizer</div>
+          <div className="card-title" style={{ marginBottom: 8 }}>{t("cd.raceOrganizer")}</div>
           {organizer ? (
             <>
               <div className="row" style={{ gap: 10 }}>
@@ -215,12 +217,12 @@ function CompOverviewTab({ c, organizer, disciplines, entryCount }: { c: Competi
                 </div>
               </div>
               <div className="col" style={{ gap: 8, marginTop: 12 }}>
-                <InfoRow icon="phone" label="Phone" value={organizer.phone || "—"} />
-                <InfoRow icon="mail" label="Email" value={organizer.email || "—"} />
+                <InfoRow icon="phone" label={t("cd.phone")} value={organizer.phone || "—"} />
+                <InfoRow icon="mail" label={t("cd.email")} value={organizer.email || "—"} />
               </div>
             </>
           ) : (
-            <div className="text-sm muted">No organizer assigned.</div>
+            <div className="text-sm muted">{t("cd.noOrganizer")}</div>
           )}
         </div>
       </div>
@@ -249,15 +251,15 @@ function CompEntriesTab({ entries, athletes, onAdd, onResult }: { entries: RaceE
   return (
     <div className="card">
       <div className="card-header">
-        <div className="card-title">Entries · {entries.length}</div>
-        <button className="btn btn-secondary btn-sm" onClick={onAdd}><Icon name="plus" size={13} />Add Athletes</button>
+        <div className="card-title">{t("cd.entries")} · {entries.length}</div>
+        <button className="btn btn-secondary btn-sm" onClick={onAdd}><Icon name="plus" size={13} />{t("cd.addAthletes")}</button>
       </div>
       {entries.length === 0 ? (
-        <EmptyState icon="users" title="No athletes entered" description="Add athletes to the disciplines of this race." action={<button className="btn btn-primary btn-sm" onClick={onAdd}><Icon name="plus" size={13} />Add Athletes</button>} />
+        <EmptyState icon="users" title={t("cd.noAthletes")} description={t("cd.noAthletesDesc")} action={<button className="btn btn-primary btn-sm" onClick={onAdd}><Icon name="plus" size={13} />{t("cd.addAthletes")}</button>} />
       ) : (
         <table className="table">
           <thead>
-            <tr><th>Athlete</th><th>Discipline</th><th>Status</th><th style={{ width: 120 }}></th></tr>
+            <tr><th>{t("cd.athlete")}</th><th>{t("cd.discipline")}</th><th>{t("cd.status")}</th><th style={{ width: 120 }}></th></tr>
           </thead>
           <tbody>
             {entries.map((e) => (
@@ -272,7 +274,7 @@ function CompEntriesTab({ entries, athletes, onAdd, onResult }: { entries: RaceE
                 <td><EntryStatusBadge status={e.status} /></td>
                 <td>
                   <div className="row" style={{ gap: 4 }}>
-                    <button className="btn btn-secondary btn-sm" onClick={() => onResult(e)}><Icon name="edit" size={12} /> Result</button>
+                    <button className="btn btn-secondary btn-sm" onClick={() => onResult(e)}><Icon name="edit" size={12} /> {t("cd.result")}</button>
                     <button className="icon-btn" style={{ color: "var(--danger)" }} onClick={() => deleteEntry(e.id)}><Icon name="trash" size={13} /></button>
                   </div>
                 </td>
@@ -283,12 +285,12 @@ function CompEntriesTab({ entries, athletes, onAdd, onResult }: { entries: RaceE
       )}
       <div className="row" style={{ gap: 8, padding: "12px 18px", borderTop: "1px solid var(--border-1)", color: "var(--accent)" }}>
         <Icon name="info" size={16} />
-        <span className="fw-700" style={{ fontSize: 15 }}>Right-click an athlete to set their status.</span>
+        <span className="fw-700" style={{ fontSize: 15 }}>{t("cd.rightClick")}</span>
       </div>
 
       {menu && (
         <div style={{ position: "fixed", top: Math.min(menu.y, window.innerHeight - 220), left: Math.min(menu.x, window.innerWidth - 220), zIndex: 50, width: 200, background: "var(--bg-1)", border: "1px solid var(--border-2)", borderRadius: "var(--r-md)", boxShadow: "var(--shadow-lift)", padding: 4 }}>
-          <div className="text-xs mono fw-700 muted" style={{ textTransform: "uppercase", letterSpacing: "0.05em", padding: "4px 10px 2px" }}>Set status</div>
+          <div className="text-xs mono fw-700 muted" style={{ textTransform: "uppercase", letterSpacing: "0.05em", padding: "4px 10px 2px" }}>{t("cd.setStatus")}</div>
           {ENTRY_STATUSES.map((s) => (
             <button key={s.v} style={menuItem} onMouseEnter={hoverOn} onMouseLeave={hoverOff} onClick={() => { updateEntry(menu.entry.id, { status: s.v }); setMenu(null); }}>
               <span style={{ width: 14, display: "inline-flex" }}>{menu.entry.status === s.v && <Icon name="check" size={13} style={{ color: "var(--accent)" }} />}</span>
@@ -305,7 +307,7 @@ function CompResultsTab({ entries, athletes }: { entries: RaceEntry[]; athletes:
   const { t } = useLane();
   const nameOf = (id: string) => { const a = athletes.find((x) => x.id === id); return a ? `${a.first} ${a.last}` : id; };
   if (entries.length === 0) {
-    return <div className="card"><EmptyState icon="trophy" title="No results yet" description="Results appear here once entered against an athlete." /></div>;
+    return <div className="card"><EmptyState icon="trophy" title={t("cd.noResults")} description={t("cd.noResultsDesc")} /></div>;
   }
   return (
     <div className="col" style={{ gap: 12 }}>
@@ -313,9 +315,9 @@ function CompResultsTab({ entries, athletes }: { entries: RaceEntry[]; athletes:
       <PlacementStats entries={entries} totalLabelKey="stats.results" title={t("stats.thisRace")} />
     </div>
     <div className="card">
-      <div className="card-header"><div className="card-title">Results · {entries.length}</div></div>
+      <div className="card-header"><div className="card-title">{t("cd.results")} · {entries.length}</div></div>
       <table className="table">
-        <thead><tr><th>Athlete</th><th>Discipline</th><th>Place</th><th>Time</th><th>Wind</th><th>Note</th></tr></thead>
+        <thead><tr><th>{t("cd.athlete")}</th><th>{t("cd.discipline")}</th><th>{t("cd.place")}</th><th>{t("cd.time")}</th><th>{t("cd.wind")}</th><th>{t("cd.note")}</th></tr></thead>
         <tbody>
           {entries.map((e) => {
             const color = placementColor(e.position);
@@ -338,6 +340,7 @@ function CompResultsTab({ entries, athletes }: { entries: RaceEntry[]; athletes:
 }
 
 function CompDisciplinesTab({ disciplines, entries, athletes }: { disciplines: MeetingDiscipline[]; entries: RaceEntry[]; athletes: Athlete[] }) {
+  const { t } = useLane();
   const nameOf = (id: string) => { const a = athletes.find((x) => x.id === id); return a ? `${a.first} ${a.last}` : id; };
   return (
     <div className="col" style={{ gap: 12 }}>
@@ -346,11 +349,11 @@ function CompDisciplinesTab({ disciplines, entries, athletes }: { disciplines: M
         return (
           <div key={i} className="card">
             <div className="card-header">
-              <div className="card-title">{d.discipline} <span className="text-xs muted">· {d.gender === "W" ? "Women" : "Men"}</span></div>
-              <span className="text-sm muted">{inDisc.length} entered</span>
+              <div className="card-title">{d.discipline} <span className="text-xs muted">· {d.gender === "W" ? t("cd.women") : t("cd.men")}</span></div>
+              <span className="text-sm muted">{inDisc.length} {t("cd.entered")}</span>
             </div>
             <div style={{ padding: "6px 0" }}>
-              {inDisc.length === 0 ? <div className="text-sm muted" style={{ padding: "8px 18px" }}>No athletes yet.</div> : inDisc.map((e) => (
+              {inDisc.length === 0 ? <div className="text-sm muted" style={{ padding: "8px 18px" }}>{t("cd.noAthletesYet")}</div> : inDisc.map((e) => (
                 <div key={e.id} className="row" style={{ padding: "8px 18px", gap: 10 }}>
                   <div className="fw-600" style={{ flex: 1 }}>{nameOf(e.athleteId)}</div>
                   <EntryStatusBadge status={e.status} />
@@ -372,31 +375,31 @@ function AddEntryModal({ competition, disciplines, athletes, onClose }: { compet
   const [status, setStatus] = useState<EntryStatus>("proposed");
   const [error, setError] = useState("");
   const submit = () => {
-    if (!athleteId) { setError("Choose an athlete"); return; }
+    if (!athleteId) { setError(t("cd.chooseAthlete")); return; }
     const d = disciplines[discIdx];
     createEntry({ competitionId: competition.id, athleteId, discipline: d.discipline, gender: d.gender, status });
     onClose();
   };
   return (
-    <Modal open onClose={onClose} title={`Add athlete — ${competition.short || competition.name}`} footer={<><button className="btn btn-secondary" onClick={onClose}>Cancel</button><button className="btn btn-primary" onClick={submit}>Add entry</button></>}>
+    <Modal open onClose={onClose} title={`${t("cd.addAthleteTitle")} — ${competition.short || competition.name}`} footer={<><button className="btn btn-secondary" onClick={onClose}>{t("common.cancel")}</button><button className="btn btn-primary" onClick={submit}>{t("cd.addEntry")}</button></>}>
       <div className="col" style={{ gap: 14 }}>
         <div className="field">
-          <label className="field-label">Athlete</label>
+          <label className="field-label">{t("cd.athlete")}</label>
           <select className="input" value={athleteId} onChange={(e) => setAthleteId(e.target.value)}>
-            <option value="">Select athlete…</option>
+            <option value="">{t("cd.selectAthlete")}</option>
             {athletes.map((a) => <option key={a.id} value={a.id}>{a.first} {a.last} ({a.specialty})</option>)}
           </select>
           {error && <span className="field-error"><Icon name="alert" size={11} /> {error}</span>}
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
           <div className="field">
-            <label className="field-label">Discipline</label>
+            <label className="field-label">{t("cd.discipline")}</label>
             <select className="input" value={discIdx} onChange={(e) => setDiscIdx(Number(e.target.value))}>
               {disciplines.map((d, i) => <option key={i} value={i}>{d.discipline} ({d.gender})</option>)}
             </select>
           </div>
           <div className="field">
-            <label className="field-label">Status</label>
+            <label className="field-label">{t("cd.status")}</label>
             <select className="input" value={status} onChange={(e) => setStatus(e.target.value as EntryStatus)}>
               {ENTRY_STATUSES.map((s) => <option key={s.v} value={s.v}>{t(`entry.${s.v}`)}</option>)}
             </select>
@@ -409,7 +412,7 @@ function AddEntryModal({ competition, disciplines, athletes, onClose }: { compet
 
 // ---- Manage disciplines (photo_16 "Aggiungi una disciplina alla competizione")
 function DisciplineManagerModal({ competition, onClose }: { competition: Competition; onClose: () => void }) {
-  const { updateCompetition } = useLane();
+  const { updateCompetition, t } = useLane();
   const seed: MeetingDiscipline[] = competition.disciplines?.length
     ? competition.disciplines
     : competition.events.map((e) => ({ discipline: e, gender: "M" as const, date: competition.date }));
@@ -432,48 +435,48 @@ function DisciplineManagerModal({ competition, onClose }: { competition: Competi
       open
       onClose={onClose}
       size="lg"
-      title="Disciplines"
-      footer={<><button className="btn btn-secondary" onClick={onClose}>Cancel</button><button className="btn btn-primary" onClick={save}>Save</button></>}
+      title={t("cd.disciplines")}
+      footer={<><button className="btn btn-secondary" onClick={onClose}>{t("common.cancel")}</button><button className="btn btn-primary" onClick={save}>{t("common.save")}</button></>}
     >
       <div className="col" style={{ gap: 14 }}>
         <div className="card card-pad">
           <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr auto", gap: 10, alignItems: "end" }}>
             <div className="field">
-              <label className="field-label">Discipline</label>
+              <label className="field-label">{t("cd.discipline")}</label>
               <select className="input" value={discipline} onChange={(e) => setDiscipline(e.target.value)}>
                 {ALL_DISCIPLINES.map((d) => <option key={d} value={d}>{d}</option>)}
               </select>
             </div>
             <div className="field">
-              <label className="field-label">Gender</label>
+              <label className="field-label">{t("cd.gender")}</label>
               <select className="input" value={gender} onChange={(e) => setGender(e.target.value as "M" | "W")}>
-                <option value="M">Men</option>
-                <option value="W">Women</option>
+                <option value="M">{t("cd.men")}</option>
+                <option value="W">{t("cd.women")}</option>
               </select>
             </div>
-            <div className="field"><label className="field-label">Date</label><input type="date" className="input" value={date} onChange={(e) => setDate(e.target.value)} /></div>
-            <button className="btn btn-primary" onClick={add}><Icon name="plus" size={13} /> Add</button>
+            <div className="field"><label className="field-label">{t("cd.date")}</label><input type="date" className="input" value={date} onChange={(e) => setDate(e.target.value)} /></div>
+            <button className="btn btn-primary" onClick={add}><Icon name="plus" size={13} /> {t("cd.add")}</button>
           </div>
           <div className="row" style={{ gap: 18, marginTop: 10, flexWrap: "wrap" }}>
-            <label className="row" style={{ gap: 6, cursor: "pointer" }}><input type="checkbox" checked={indoor} onChange={(e) => setIndoor(e.target.checked)} /> Indoor</label>
-            <label className="row" style={{ gap: 6, cursor: "pointer" }}><input type="checkbox" checked={toConfirm} onChange={(e) => setToConfirm(e.target.checked)} /> To confirm</label>
+            <label className="row" style={{ gap: 6, cursor: "pointer" }}><input type="checkbox" checked={indoor} onChange={(e) => setIndoor(e.target.checked)} /> {t("cd.indoor")}</label>
+            <label className="row" style={{ gap: 6, cursor: "pointer" }}><input type="checkbox" checked={toConfirm} onChange={(e) => setToConfirm(e.target.checked)} /> {t("cd.toConfirm")}</label>
           </div>
         </div>
 
         <div>
-          <div className="field-label" style={{ marginBottom: 6 }}>Disciplines for this race</div>
+          <div className="field-label" style={{ marginBottom: 6 }}>{t("cd.discsForRace")}</div>
           {list.length === 0 ? (
-            <div className="text-sm muted" style={{ padding: 8 }}>No disciplines yet.</div>
+            <div className="text-sm muted" style={{ padding: 8 }}>{t("cd.noDiscs")}</div>
           ) : (
             <table className="table">
-              <thead><tr><th>Discipline</th><th>Gender</th><th>Date</th><th></th><th style={{ width: 40 }}></th></tr></thead>
+              <thead><tr><th>{t("cd.discipline")}</th><th>{t("cd.gender")}</th><th>{t("cd.date")}</th><th></th><th style={{ width: 40 }}></th></tr></thead>
               <tbody>
                 {list.map((d, i) => (
                   <tr key={i}>
                     <td className="fw-600">{d.discipline}</td>
-                    <td>{d.gender === "W" ? "Women" : "Men"}</td>
+                    <td>{d.gender === "W" ? t("cd.women") : t("cd.men")}</td>
                     <td className="text-sm mono">{d.date}</td>
-                    <td>{d.indoor && <Badge>Indoor</Badge>} {d.toConfirm && <Badge variant="warning">To confirm</Badge>}</td>
+                    <td>{d.indoor && <Badge>{t("cd.indoor")}</Badge>} {d.toConfirm && <Badge variant="warning">{t("cd.toConfirm")}</Badge>}</td>
                     <td><button className="icon-btn" style={{ color: "var(--danger)" }} onClick={() => remove(i)}><Icon name="trash" size={13} /></button></td>
                   </tr>
                 ))}
@@ -487,7 +490,7 @@ function DisciplineManagerModal({ competition, onClose }: { competition: Competi
 }
 
 export function ResultModal({ entry, athletes, onClose }: { entry: RaceEntry; athletes: Athlete[]; onClose: () => void }) {
-  const { updateEntry } = useLane();
+  const { updateEntry, t } = useLane();
   const a = athletes.find((x) => x.id === entry.athleteId);
   const [position, setPosition] = useState<string>(entry.position != null ? String(entry.position) : "");
   const [time, setTime] = useState(entry.time || "");
@@ -498,21 +501,21 @@ export function ResultModal({ entry, athletes, onClose }: { entry: RaceEntry; at
     onClose();
   };
   return (
-    <Modal open onClose={onClose} title={`Result — ${a ? a.first + " " + a.last : ""} · ${entry.discipline}`} footer={<><button className="btn btn-secondary" onClick={onClose}>Cancel</button><button className="btn btn-primary" onClick={submit}>Save result</button></>}>
+    <Modal open onClose={onClose} title={`${t("cd.resultTitle")} — ${a ? a.first + " " + a.last : ""} · ${entry.discipline}`} footer={<><button className="btn btn-secondary" onClick={onClose}>{t("common.cancel")}</button><button className="btn btn-primary" onClick={submit}>{t("cd.saveResult")}</button></>}>
       <div className="col" style={{ gap: 14 }}>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-          <div className="field"><label className="field-label">Place</label><input className="input mono" type="number" min="1" value={position} onChange={(e) => setPosition(e.target.value)} /></div>
-          <div className="field"><label className="field-label">Time / mark</label><input className="input mono" placeholder="1:57.30 / 8.05m" value={time} onChange={(e) => setTime(e.target.value)} /></div>
-          <div className="field"><label className="field-label">Wind</label><input className="input mono" placeholder="+0.4" value={wind} onChange={(e) => setWind(e.target.value)} /></div>
+          <div className="field"><label className="field-label">{t("cd.place")}</label><input className="input mono" type="number" min="1" value={position} onChange={(e) => setPosition(e.target.value)} /></div>
+          <div className="field"><label className="field-label">{t("cd.timeMark")}</label><input className="input mono" placeholder="1:57.30 / 8.05m" value={time} onChange={(e) => setTime(e.target.value)} /></div>
+          <div className="field"><label className="field-label">{t("cd.wind")}</label><input className="input mono" placeholder="+0.4" value={wind} onChange={(e) => setWind(e.target.value)} /></div>
           <div className="field">
-            <label className="field-label">Note</label>
+            <label className="field-label">{t("cd.note")}</label>
             <select className="input" value={note} onChange={(e) => setNote(e.target.value)}>
               <option value="">—</option>
-              <option value="PB">Personal Best</option>
-              <option value="SB">Season Best</option>
-              <option value="NR">National Record</option>
-              <option value="DNF">Did not finish</option>
-              <option value="DQ">Disqualified</option>
+              <option value="PB">{t("cd.notePB")}</option>
+              <option value="SB">{t("cd.noteSB")}</option>
+              <option value="NR">{t("cd.noteNR")}</option>
+              <option value="DNF">{t("cd.noteDNF")}</option>
+              <option value="DQ">{t("cd.noteDQ")}</option>
             </select>
           </div>
         </div>

@@ -4,58 +4,82 @@
 
 import { Icon } from "@/components/icon";
 import { useLane } from "@/components/lane-provider";
-import { Avatar, Badge, Modal, Segmented } from "@/components/primitives";
+import { Avatar, Badge, Modal } from "@/components/primitives";
 import { FilterDropdown, InfoRow } from "@/components/shared";
 import { DOC_CATEGORIES } from "@/lib/reference";
 import type { Athlete, LaneDocument, Visa } from "@/lib/types";
-import { downloadCsv, downloadWordDoc } from "@/utils";
+import { downloadCsv, downloadWordDoc, pickFiles } from "@/utils";
 import { useState } from "react";
 
+// Days until an ISO date, measured from local midnight; negative = past.
+function daysUntil(iso?: string | null): number | null {
+  if (!iso) return null;
+  const d = new Date(iso + "T00:00");
+  if (isNaN(d.getTime())) return null;
+  const start = new Date(); start.setHours(0, 0, 0, 0);
+  return Math.round((d.getTime() - start.getTime()) / 86400000);
+}
+
+// Which categories carry a meaningful date to filter on: passports & visas by
+// expiry, contracts by deadline. Medical records and media have none.
+const DATE_FILTER_CATEGORIES = ["passport", "visa", "contract"];
+
 export function DocumentsScreen() {
-  const { documents: docs, athletes, visas, addDocuments } = useLane();
+  const { documents: docs, athletes, visas, addDocuments, t } = useLane();
   const [category, setCategory] = useState("all");
   const [search, setSearch] = useState("");
-  const [view, setView] = useState<"grid" | "list">("grid");
+  const [dateFilter, setDateFilter] = useState("all");
   const [preview, setPreview] = useState<LaneDocument | null>(null);
-  const [showUpload, setShowUpload] = useState(false);
-  const [typeFilter, setTypeFilter] = useState("all");
-  const [sortDir, setSortDir] = useState<"desc" | "asc">("desc");
+
+  const showDateFilter = DATE_FILTER_CATEGORIES.includes(category);
+  const isContract = category === "contract";
 
   const filtered = docs
     .filter((d) => {
       if (category !== "all" && d.category !== category) return false;
-      if (typeFilter !== "all" && d.type !== typeFilter) return false;
       if (search && !d.name.toLowerCase().includes(search.toLowerCase())) return false;
+      if (showDateFilter && dateFilter !== "all") {
+        const days = daysUntil(d.expires);
+        if (days == null) return false; // no date on file → excluded while filtering by date
+        if (dateFilter === "expired" && !(days < 0)) return false;
+        if (dateFilter === "soon" && !(days >= 0 && days < 60)) return false;
+        if (dateFilter === "valid" && !(days >= 60)) return false;
+      }
       return true;
     })
-    .sort((a, b) => (sortDir === "desc" ? (b.uploaded || "").localeCompare(a.uploaded || "") : (a.uploaded || "").localeCompare(b.uploaded || "")));
+    .sort((a, b) => (b.uploaded || "").localeCompare(a.uploaded || "")); // newest first
 
-  const handleUpload = (files: { name: string }[]) => {
-    addDocuments(files);
-    setShowUpload(false);
+  const handleUpload = (files: { name: string; size?: string }[]) => addDocuments(files);
+
+  // Upload button: open the OS file picker and add the chosen files.
+  const pickAndUpload = async () => {
+    const files = await pickFiles("image/*,application/pdf,.doc,.docx", true);
+    if (files.length) handleUpload(files.map((f) => ({ name: f.name, size: (f.size / 1048576).toFixed(1) + " MB" })));
   };
 
-  const totalSize = docs.reduce((s, d) => s + parseFloat(d.size), 0);
+  // Date-filter options adapt to the category: expiry wording for passport/visa,
+  // deadline wording for contracts.
+  const dateOptions = isContract
+    ? [{ v: "all", l: t("docfilter.all") }, { v: "soon", l: t("docfilter.dueSoon") }, { v: "expired", l: t("docfilter.overdue") }, { v: "valid", l: t("docfilter.upcoming") }]
+    : [{ v: "all", l: t("docfilter.all") }, { v: "valid", l: t("docfilter.valid") }, { v: "soon", l: t("docfilter.soon") }, { v: "expired", l: t("docfilter.expired") }];
 
   return (
     <div className="page">
       <div className="page-header">
         <div>
-          <h1 className="page-title">Documents</h1>
-          <p className="page-subtitle">{docs.length} files · {totalSize.toFixed(1)} MB used · 2 require attention</p>
+          <h1 className="page-title">{t("docs.title")}</h1>
         </div>
         <div className="page-header-actions">
-          <button className="btn btn-secondary"><Icon name="folder" size={14} /> New folder</button>
-          <button className="btn btn-primary" onClick={() => setShowUpload(true)}><Icon name="upload" size={14} /> Upload</button>
+          <button className="btn btn-primary" onClick={pickAndUpload}><Icon name="upload" size={14} /> {t("docs.upload")}</button>
         </div>
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "220px 1fr", gap: 12 }}>
         <div className="card" style={{ padding: 8, height: "fit-content", display: "flex", flexDirection: "column", gap: 1 }}>
           {DOC_CATEGORIES.map((c) => (
-            <button key={c.id} onClick={() => setCategory(c.id)} className="nav-item" aria-current={category === c.id ? "page" : undefined}>
+            <button key={c.id} onClick={() => { setCategory(c.id); setDateFilter("all"); }} className="nav-item" aria-current={category === c.id ? "page" : undefined}>
               <span className="nav-item-icon"><Icon name={c.icon} size={15} /></span>
-              <span className="nav-item-label">{c.label}</span>
+              <span className="nav-item-label">{t("doccat." + c.id)}</span>
             </button>
           ))}
         </div>
@@ -64,13 +88,11 @@ export function DocumentsScreen() {
           <div className="card" style={{ padding: 12, display: "flex", gap: 8, alignItems: "center" }}>
             <div className="input-group" style={{ flex: 1 }}>
               <Icon name="search" size={14} />
-              <input className="input" placeholder="Search documents..." value={search} onChange={(e) => setSearch(e.target.value)} />
+              <input className="input" placeholder={category === "visa" ? t("docs.searchVisa") : t("docs.search")} value={search} onChange={(e) => setSearch(e.target.value)} />
             </div>
-            <FilterDropdown label="Type" value={typeFilter} options={[{ v: "all", l: "All types" }, { v: "pdf", l: "PDF" }, { v: "image", l: "Images" }, { v: "doc", l: "Docs" }]} onChange={setTypeFilter} />
-            <button className="btn btn-secondary btn-sm" onClick={() => setSortDir((d) => (d === "desc" ? "asc" : "desc"))} title="Sort by date">
-              <Icon name={sortDir === "desc" ? "chevronDown" : "chevronUp"} size={13} /> Date
-            </button>
-            <Segmented options={[{ value: "grid", icon: "grid", label: "Grid" }, { value: "list", icon: "list", label: "List" }]} value={view} onChange={setView} />
+            {showDateFilter && (
+              <FilterDropdown label={isContract ? t("docfilter.deadline") : t("docfilter.expiry")} value={dateFilter} options={dateOptions} onChange={setDateFilter} />
+            )}
           </div>
 
           {category === "visa" && <VisaListPanel visas={visas} athletes={athletes} search={search} />}
@@ -80,52 +102,9 @@ export function DocumentsScreen() {
             category === "visa" ? null : <UploadDropzone onUpload={handleUpload} empty />
           ) : (
             <>
-              {view === "grid" ? (
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 10 }}>
-                  {filtered.map((d) => <DocGridCard key={d.id} doc={d} athletes={athletes} onOpen={() => setPreview(d)} />)}
-                </div>
-              ) : (
-                <div className="card">
-                  <table className="table">
-                    <thead>
-                      <tr><th>Name</th><th>Athlete</th><th>Category</th><th>Size</th><th>Uploaded</th><th>Expires</th><th></th></tr>
-                    </thead>
-                    <tbody>
-                      {filtered.map((d) => {
-                        const athlete = athletes.find((a) => a.id === d.athleteId);
-                        return (
-                          <tr key={d.id} onClick={() => setPreview(d)}>
-                            <td>
-                              <div className="row" style={{ gap: 10 }}>
-                                <DocIcon doc={d} small />
-                                <div>
-                                  <div className="fw-600">{d.name}</div>
-                                  <div className="text-xs muted">{d.type.toUpperCase()}</div>
-                                </div>
-                              </div>
-                            </td>
-                            <td>
-                              {athlete ? (
-                                <div className="row" style={{ gap: 8 }}>
-                                  <Avatar name={athlete.first + " " + athlete.last} color={athlete.color} size="xs" />
-                                  <span className="text-sm">{athlete.first} {athlete.last}</span>
-                                </div>
-                              ) : (
-                                <span className="muted text-sm">Team-wide</span>
-                              )}
-                            </td>
-                            <td><Badge>{d.category}</Badge></td>
-                            <td className="text-sm mono">{d.size}</td>
-                            <td className="text-sm muted mono">{d.uploaded}</td>
-                            <td>{d.expires ? <ExpiryBadge expires={d.expires} /> : <span className="muted text-sm">—</span>}</td>
-                            <td onClick={(e) => e.stopPropagation()}><button className="icon-btn"><Icon name="moreV" size={14} /></button></td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              )}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 10 }}>
+                {filtered.map((d) => <DocGridCard key={d.id} doc={d} athletes={athletes} onOpen={() => setPreview(d)} />)}
+              </div>
               <UploadDropzone onUpload={handleUpload} />
             </>
           )}
@@ -154,6 +133,7 @@ function DocIcon({ doc, small }: { doc: LaneDocument; small?: boolean }) {
 }
 
 function DocGridCard({ doc, athletes, onOpen }: { doc: LaneDocument; athletes: Athlete[]; onOpen: () => void }) {
+  const { t } = useLane();
   const athlete = athletes.find((a) => a.id === doc.athleteId);
   return (
     <button className="card" onClick={onOpen} style={{ padding: 14, textAlign: "left", display: "flex", flexDirection: "column", gap: 10, cursor: "pointer" }}>
@@ -165,7 +145,7 @@ function DocGridCard({ doc, athletes, onOpen }: { doc: LaneDocument; athletes: A
         <div className="text-xs muted">{doc.size} · {doc.uploaded}</div>
       </div>
       <div className="row" style={{ justifyContent: "space-between" }}>
-        {athlete ? <Avatar name={athlete.first + " " + athlete.last} color={athlete.color} size="xs" /> : <span className="text-xs muted">Team-wide</span>}
+        {athlete ? <Avatar name={athlete.first + " " + athlete.last} color={athlete.color} size="xs" /> : <span className="text-xs muted">{t("docs.teamWide")}</span>}
         {doc.expires && <ExpiryBadge expires={doc.expires} />}
       </div>
     </button>
@@ -173,16 +153,19 @@ function DocGridCard({ doc, athletes, onOpen }: { doc: LaneDocument; athletes: A
 }
 
 function ExpiryBadge({ expires }: { expires: string }) {
-  const days = Math.round((+new Date(expires) - +new Date("2026-05-21")) / 86400000);
-  if (days < 0) return <Badge variant="danger">Expired</Badge>;
-  if (days < 60) return <Badge variant="warning">{days}d left</Badge>;
-  return <Badge variant="success" dot>Valid</Badge>;
+  const { t } = useLane();
+  const days = daysUntil(expires);
+  if (days == null) return null;
+  if (days < 0) return <Badge variant="danger">{t("docs.expired")}</Badge>;
+  if (days < 60) return <Badge variant="warning">{t("docs.daysLeft", { n: days })}</Badge>;
+  return <Badge variant="success" dot>{t("docs.valid")}</Badge>;
 }
 
 // The visa list generated by the software (photo_26). Only the fields the user
 // needs: athlete surname/name, validity (from → to), and visa type. Printable
 // (Word) or savable (CSV) for when a paper/offline copy is needed.
 function VisaListPanel({ visas, athletes, search }: { visas: Visa[]; athletes: Athlete[]; search: string }) {
+  const { t } = useLane();
   const nameOf = (id: string) => { const a = athletes.find((x) => x.id === id); return a ? `${a.last}, ${a.first}` : id; };
   const rows = visas
     .filter((v) => !v.archived)
@@ -192,27 +175,27 @@ function VisaListPanel({ visas, athletes, search }: { visas: Visa[]; athletes: A
 
   const esc = (s: string) => s.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]!));
   const printList = () => {
-    const body = `<h1>Visa list</h1><p class="sub">${rows.length} visas</p><table><tr><th>Athlete</th><th>Type</th><th>Valid from</th><th>Valid to</th></tr>${rows
+    const body = `<h1>${t("docs.visaList")}</h1><p class="sub">${rows.length} ${t("doccat.visa").toLowerCase()}</p><table><tr><th>${t("docs.athlete")}</th><th>${t("docs.type")}</th><th>${t("docs.validFrom")}</th><th>${t("docs.validTo")}</th></tr>${rows
       .map((r) => `<tr><td>${esc(r.name)}</td><td>${esc(r.type)}</td><td>${esc(r.from)}</td><td>${esc(r.to)}</td></tr>`)
       .join("")}</table>`;
-    downloadWordDoc("visa-list", body, "Visa list");
+    downloadWordDoc("visa-list", body, t("docs.visaList"));
   };
   const exportCsv = () => downloadCsv("visa-list", rows.map((r) => ({ athlete: r.name, type: r.type, valid_from: r.from, valid_to: r.to })));
 
   return (
     <div className="card">
       <div className="card-header">
-        <div className="card-title">Visa list · {rows.length}</div>
+        <div className="card-title">{t("docs.visaList")} · {rows.length}</div>
         <div className="row" style={{ gap: 6 }}>
-          <button className="btn btn-secondary btn-sm" onClick={exportCsv}><Icon name="download" size={13} /> Save (CSV)</button>
-          <button className="btn btn-secondary btn-sm" onClick={printList}><Icon name="fileText" size={13} /> Print</button>
+          <button className="btn btn-secondary btn-sm" onClick={exportCsv}><Icon name="download" size={13} /> {t("docs.saveCsv")}</button>
+          <button className="btn btn-secondary btn-sm" onClick={printList}><Icon name="fileText" size={13} /> {t("docs.print")}</button>
         </div>
       </div>
       {rows.length === 0 ? (
-        <div className="text-sm muted" style={{ padding: 18 }}>No visas on file.</div>
+        <div className="text-sm muted" style={{ padding: 18 }}>{t("docs.noVisas")}</div>
       ) : (
         <table className="table">
-          <thead><tr><th>Athlete</th><th>Type</th><th>Valid from</th><th>Valid to</th></tr></thead>
+          <thead><tr><th>{t("docs.athlete")}</th><th>{t("docs.type")}</th><th>{t("docs.validFrom")}</th><th>{t("docs.validTo")}</th></tr></thead>
           <tbody>
             {rows.map((r, i) => (
               <tr key={i}>
@@ -234,7 +217,7 @@ function VisaListPanel({ visas, athletes, search }: { visas: Visa[]; athletes: A
 // entries + visas, so it stays in sync. Printable / savable.
 type VisaStatus = "valid" | "expired" | "unknown" | "missing";
 function RaceVisaPanel({ search }: { search: string }) {
-  const { competitions, entries, visas, athletes } = useLane();
+  const { competitions, entries, visas, athletes, t } = useLane();
   const nameOf = (id: string) => { const a = athletes.find((x) => x.id === id); return a ? `${a.last} ${a.first}` : id; };
 
   const statusFor = (athleteId: string, raceDate: string): { status: VisaStatus; visa?: Visa } => {
@@ -250,10 +233,10 @@ function RaceVisaPanel({ search }: { search: string }) {
   };
 
   const badge: Record<VisaStatus, { label: string; variant: "success" | "danger" | "warning" | "" }> = {
-    valid: { label: "Valid", variant: "success" },
-    expired: { label: "Not valid", variant: "danger" },
-    unknown: { label: "Unknown", variant: "warning" },
-    missing: { label: "No visa", variant: "" },
+    valid: { label: t("vs.valid"), variant: "success" },
+    expired: { label: t("vs.notValid"), variant: "danger" },
+    unknown: { label: t("vs.unknown"), variant: "warning" },
+    missing: { label: t("vs.noVisa"), variant: "" },
   };
 
   // One flat row per (race, athlete) — same single-table format as the visa list.
@@ -266,10 +249,10 @@ function RaceVisaPanel({ search }: { search: string }) {
 
   const esc = (s: string) => String(s ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]!));
   const printList = () => {
-    const body = `<h1>Race visa check</h1><table><tr><th>Race</th><th>Date</th><th>Athlete</th><th>Visa</th><th>Valid from</th><th>Valid to</th><th>Embassy</th><th>Status</th></tr>${rows
+    const body = `<h1>${t("docs.raceVisaCheck")}</h1><table><tr><th>${t("docs.race")}</th><th>${t("docs.validFrom")}</th><th>${t("docs.athlete")}</th><th>${t("docs.visa")}</th><th>${t("docs.validFrom")}</th><th>${t("docs.validTo")}</th><th>${t("docs.embassy")}</th><th>${t("common.status")}</th></tr>${rows
       .map((r) => `<tr><td>${esc(r.race.name)}</td><td>${esc(r.race.date)}</td><td>${esc(r.name)}</td><td>${esc(r.visa?.type || r.visa?.kind || "—")}</td><td>${esc(r.visa?.validFrom || "—")}</td><td>${esc(r.visa?.validTo || "—")}</td><td>${esc(r.visa?.embassy || "—")}</td><td>${esc(badge[r.status].label)}</td></tr>`)
       .join("")}</table>`;
-    downloadWordDoc("race-visa-check", body, "Race visa check");
+    downloadWordDoc("race-visa-check", body, t("docs.raceVisaCheck"));
   };
   const exportCsv = () => downloadCsv("race-visa-check", rows.map((r) => ({
     race: r.race.name, date: r.race.date, athlete: r.name, visa: r.visa?.type || r.visa?.kind || "", valid_from: r.visa?.validFrom || "", valid_to: r.visa?.validTo || "", embassy: r.visa?.embassy || "", status: badge[r.status].label,
@@ -278,17 +261,17 @@ function RaceVisaPanel({ search }: { search: string }) {
   return (
     <div className="card">
       <div className="card-header">
-        <div className="card-title">Race visa check · {rows.length}</div>
+        <div className="card-title">{t("docs.raceVisaCheck")} · {rows.length}</div>
         <div className="row" style={{ gap: 6 }}>
-          <button className="btn btn-secondary btn-sm" onClick={exportCsv}><Icon name="download" size={13} /> Save (CSV)</button>
-          <button className="btn btn-secondary btn-sm" onClick={printList}><Icon name="fileText" size={13} /> Print</button>
+          <button className="btn btn-secondary btn-sm" onClick={exportCsv}><Icon name="download" size={13} /> {t("docs.saveCsv")}</button>
+          <button className="btn btn-secondary btn-sm" onClick={printList}><Icon name="fileText" size={13} /> {t("docs.print")}</button>
         </div>
       </div>
       {rows.length === 0 ? (
-        <div className="text-sm muted" style={{ padding: 18 }}>Enter athletes into races to check their visas here.</div>
+        <div className="text-sm muted" style={{ padding: 18 }}>{t("docs.raceVisaEmpty")}</div>
       ) : (
         <table className="table">
-          <thead><tr><th>Race</th><th>Athlete</th><th>Visa</th><th>Valid from</th><th>Valid to</th><th>Embassy</th><th style={{ width: 90 }}>Status</th></tr></thead>
+          <thead><tr><th>{t("docs.race")}</th><th>{t("docs.athlete")}</th><th>{t("docs.visa")}</th><th>{t("docs.validFrom")}</th><th>{t("docs.validTo")}</th><th>{t("docs.embassy")}</th><th style={{ width: 90 }}>{t("common.status")}</th></tr></thead>
           <tbody>
             {rows.map((r) => (
               <tr key={`${r.race.id}-${r.athleteId}`}>
@@ -309,6 +292,7 @@ function RaceVisaPanel({ search }: { search: string }) {
 }
 
 function UploadDropzone({ onUpload, empty }: { onUpload: (files: { name: string }[]) => void; empty?: boolean }) {
+  const { t } = useLane();
   const [over, setOver] = useState(false);
   return (
     <div
@@ -334,16 +318,17 @@ function UploadDropzone({ onUpload, empty }: { onUpload: (files: { name: string 
       <Icon name="upload" size={empty ? 28 : 18} style={{ color: over ? "var(--accent)" : "var(--fg-3)" }} />
       <div style={{ marginTop: 8 }}>
         <span className="fw-600" style={{ fontSize: empty ? 16 : 13 }}>
-          {empty ? "Drop files to upload" : "Drop more files here, or "}
-          {!empty && <span style={{ color: "var(--accent)" }}>browse</span>}
+          {empty ? t("docs.dropTitle") : t("docs.dropMore")}
+          {!empty && <span style={{ color: "var(--accent)" }}>{t("docs.browse")}</span>}
         </span>
       </div>
-      {empty && <div className="text-sm muted" style={{ marginTop: 4 }}>or click to browse — PDF, JPG, PNG up to 25 MB each</div>}
+      {empty && <div className="text-sm muted" style={{ marginTop: 4 }}>{t("docs.dropHint")}</div>}
     </div>
   );
 }
 
 function DocumentPreviewModal({ doc, athletes, onClose }: { doc: LaneDocument; athletes: Athlete[]; onClose: () => void }) {
+  const { t } = useLane();
   const athlete = athletes.find((a) => a.id === doc.athleteId);
   return (
     <Modal
@@ -353,10 +338,10 @@ function DocumentPreviewModal({ doc, athletes, onClose }: { doc: LaneDocument; a
       title={doc.name}
       footer={
         <>
-          <button className="btn btn-secondary"><Icon name="external" size={13} /> Open</button>
-          <button className="btn btn-secondary"><Icon name="share" size={13} /> Share</button>
-          <button className="btn btn-secondary"><Icon name="download" size={13} /> Download</button>
-          <button className="btn btn-primary">Replace file</button>
+          <button className="btn btn-secondary"><Icon name="external" size={13} /> {t("docs.open")}</button>
+          <button className="btn btn-secondary"><Icon name="share" size={13} /> {t("docs.share")}</button>
+          <button className="btn btn-secondary"><Icon name="download" size={13} /> {t("docs.download")}</button>
+          <button className="btn btn-primary">{t("docs.replaceFile")}</button>
         </>
       }
     >
@@ -377,28 +362,28 @@ function DocumentPreviewModal({ doc, athletes, onClose }: { doc: LaneDocument; a
           )}
           <div className="row" style={{ position: "absolute", bottom: 12, padding: "4px 12px", background: "var(--bg-1)", borderRadius: 999, border: "1px solid var(--border-1)", gap: 4 }}>
             <button className="icon-btn btn-sm"><Icon name="chevronLeft" size={13} /></button>
-            <span className="text-xs mono">Page 1 of 4</span>
+            <span className="text-xs mono">{t("docs.page")} 1 {t("docs.of")} 4</span>
             <button className="icon-btn btn-sm"><Icon name="chevronRight" size={13} /></button>
           </div>
         </div>
         <div className="col" style={{ gap: 14 }}>
           <div>
-            <div className="text-xs mono fw-700 muted" style={{ textTransform: "uppercase", letterSpacing: "0.06em" }}>Details</div>
+            <div className="text-xs mono fw-700 muted" style={{ textTransform: "uppercase", letterSpacing: "0.06em" }}>{t("docs.details")}</div>
             <div className="col" style={{ marginTop: 8, gap: 10 }}>
-              <InfoRow icon="folder" label="Category" value={<Badge>{doc.category}</Badge>} />
-              <InfoRow icon="hash" label="Size" value={<span className="mono">{doc.size}</span>} />
-              <InfoRow icon="calendar" label="Uploaded" value={doc.uploaded} />
-              {doc.expires && <InfoRow icon="clock" label="Expires" value={<ExpiryBadge expires={doc.expires} />} />}
-              {athlete && <InfoRow icon="user" label="Athlete" value={<><Avatar name={athlete.first + " " + athlete.last} color={athlete.color} size="xs" /> {athlete.first} {athlete.last}</>} />}
+              <InfoRow icon="folder" label={t("docs.category")} value={<Badge>{t("doccat." + doc.category)}</Badge>} />
+              <InfoRow icon="hash" label={t("docs.size")} value={<span className="mono">{doc.size}</span>} />
+              <InfoRow icon="calendar" label={t("docs.uploaded")} value={doc.uploaded} />
+              {doc.expires && <InfoRow icon="clock" label={t("docs.expires")} value={<ExpiryBadge expires={doc.expires} />} />}
+              {athlete && <InfoRow icon="user" label={t("docs.athlete")} value={<><Avatar name={athlete.first + " " + athlete.last} color={athlete.color} size="xs" /> {athlete.first} {athlete.last}</>} />}
             </div>
           </div>
 
           <div className="divider" />
           <div>
-            <div className="text-xs mono fw-700 muted" style={{ textTransform: "uppercase", letterSpacing: "0.06em" }}>Versions</div>
+            <div className="text-xs mono fw-700 muted" style={{ textTransform: "uppercase", letterSpacing: "0.06em" }}>{t("docs.versions")}</div>
             <div className="col" style={{ marginTop: 8, gap: 6 }}>
               <div className="row">
-                <Badge variant="success" dot>Current</Badge>
+                <Badge variant="success" dot>{t("docs.current")}</Badge>
                 <span className="text-sm fw-600">v3</span>
                 <span className="spacer" />
                 <span className="text-xs muted mono">{doc.uploaded}</span>
@@ -418,10 +403,10 @@ function DocumentPreviewModal({ doc, athletes, onClose }: { doc: LaneDocument; a
 
           <div className="divider" />
           <div>
-            <div className="text-xs mono fw-700 muted" style={{ textTransform: "uppercase", letterSpacing: "0.06em" }}>Access</div>
+            <div className="text-xs mono fw-700 muted" style={{ textTransform: "uppercase", letterSpacing: "0.06em" }}>{t("docs.access")}</div>
             <div className="row" style={{ marginTop: 8 }}>
               <Icon name="lock" size={14} style={{ color: "var(--fg-3)" }} />
-              <span className="text-sm">Restricted — Admin, Coach</span>
+              <span className="text-sm">{t("docs.restricted")}</span>
             </div>
           </div>
         </div>

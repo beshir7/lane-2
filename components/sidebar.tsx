@@ -53,10 +53,12 @@ function pageFromPath(pathname: string): string {
 }
 
 export function Sidebar() {
-  const { athletes, tweaks, navigate, setCmdOpen, unreadCount, t, currentUser } = useLane();
+  const { athletes, tweaks, setTweak, navigate, setCmdOpen, unreadCount, t, currentUser } = useLane();
   const pathname = usePathname();
   const currentPage = pageFromPath(pathname);
   const variant = tweaks.sidebar;
+  const collapsed = variant === "rail";
+  const toggleCollapsed = () => setTweak("sidebar", collapsed ? "expanded" : "rail");
 
   const navGroups = [
     {
@@ -86,6 +88,15 @@ export function Sidebar() {
         <div className="brand-text">
           Lane<sup>2</sup>
         </div>
+        <button
+          className="icon-btn sidebar-collapse"
+          onClick={toggleCollapsed}
+          title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          style={{ marginLeft: "auto" }}
+        >
+          <Icon name={collapsed ? "chevronRight" : "chevronLeft"} size={16} />
+        </button>
       </div>
 
       <nav className="sidebar-nav">
@@ -114,43 +125,16 @@ export function Sidebar() {
           </div>
         ))}
 
-        {variant !== "rail" && (
-          <button
-            onClick={() => setCmdOpen(true)}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-              padding: "8px 10px",
-              marginTop: 4,
-              borderRadius: "var(--r-md)",
-              background: "var(--bg-2)",
-              border: "1px solid var(--border-1)",
-              color: "var(--fg-2)",
-              fontSize: 12.5,
-              fontWeight: 500,
-              cursor: "pointer",
-              width: "100%",
-              textAlign: "left",
-            }}
-          >
-            <Icon name="search" size={14} />
-            <span>{t("sidebar.search")}</span>
-            <span style={{ marginLeft: "auto", fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--fg-3)" }}>⌘K</span>
-          </button>
-        )}
-
         {variant !== "rail" && <LanguageSwitch />}
       </nav>
 
       <div className="sidebar-footer">
-        <div className="sidebar-footer-user" onClick={() => navigate("settings", "profile")} role="button" tabIndex={0} title="Your profile" style={{ cursor: "pointer" }}>
+        <div className="sidebar-footer-user" onClick={() => navigate("settings", "profile")} role="button" tabIndex={0} title="Your profile">
           <Avatar name={currentUser?.name || "Account"} color={currentUser?.color || "#5b6ef5"} size="sm" dot="online" />
           <div className="org-text">
             <b>{currentUser?.name || "Account"}</b>
             <span>{currentUser?.title || currentUser?.email || ""}</span>
           </div>
-          {variant !== "rail" && <Icon name="chevronDown" size={14} style={{ color: "var(--fg-3)" }} />}
         </div>
       </div>
     </aside>

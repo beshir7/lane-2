@@ -6,6 +6,7 @@ import { Icon } from "@/components/icon";
 import { useLane } from "@/components/lane-provider";
 import { Avatar, Badge, EmptyState, KPI, Segmented } from "@/components/primitives";
 import { DateStack } from "@/components/shared";
+import { localeOf } from "@/lib/i18n";
 import { downloadCsv } from "@/utils";
 import { useMemo, useState } from "react";
 
@@ -18,8 +19,9 @@ function daysUntil(iso: string): number | null {
 }
 
 export function DashboardScreen() {
-  const { athletes, competitions, events, entries, activity, passports, visas, navigate } = useLane();
+  const { athletes, competitions, events, entries, activity, passports, visas, navigate, t, lang } = useLane();
   const [range, setRange] = useState("w");
+  const loc = localeOf(lang);
 
   // ---- Performance trend from real data: race entries & athletes competing per
   // month, over the 12 months ending at the most recent month we have races in. ----
@@ -35,12 +37,12 @@ export function DashboardScreen() {
     }
     const entriesFor = (mo: string) => entries.filter((e) => monthOf(e.competitionId) === mo);
     return {
-      labels: months.map((mo) => new Date(mo + "-01T00:00").toLocaleDateString("en-US", { month: "short" })),
+      labels: months.map((mo) => new Date(mo + "-01T00:00").toLocaleDateString(loc, { month: "short" })),
       entriesPerMonth: months.map((mo) => entriesFor(mo).length),
       athletesPerMonth: months.map((mo) => new Set(entriesFor(mo).map((e) => e.athleteId)).size),
       hasData: entries.length > 0,
     };
-  }, [entries, competitions]);
+  }, [entries, competitions, loc]);
 
   // ---- Derived metrics (all from real data) ----
   const windowEnd = Date.now() + RANGE_DAYS[range] * 86400000;
@@ -81,38 +83,38 @@ export function DashboardScreen() {
     <div className="page">
       <div className="page-header">
         <div>
-          <h1 className="page-title">Dashboard</h1>
-          <p className="page-subtitle">{new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })} · {athletes.length} athletes · {upcomingCount} upcoming competitions · {eventsInRange} events this {range === "d" ? "day" : range === "w" ? "week" : range === "m" ? "month" : "quarter"}</p>
+          <h1 className="page-title">{t("dash.title")}</h1>
+          <p className="page-subtitle">{new Date().toLocaleDateString(loc, { weekday: "long", month: "long", day: "numeric" })} · {athletes.length} {t("dash.athletes")} · {upcomingCount} {t("dash.upcomingComps")} · {eventsInRange} {t("dash.eventsThis")} {range === "d" ? t("range.day") : range === "w" ? t("range.week") : range === "m" ? t("range.month") : t("range.quarter")}</p>
         </div>
         <div className="page-header-actions">
-          <Segmented options={[{ label: "Today", value: "d" }, { label: "Week", value: "w" }, { label: "Month", value: "m" }, { label: "Quarter", value: "q" }]} value={range} onChange={setRange} />
-          <button className="btn btn-secondary" onClick={exportSummary}><Icon name="download" size={14} /> Export</button>
-          <button className="btn btn-primary" onClick={() => navigate("calendar")}><Icon name="plus" size={14} /> New event</button>
+          <Segmented options={[{ label: t("range.today"), value: "d" }, { label: t("range.weekLabel"), value: "w" }, { label: t("range.monthLabel"), value: "m" }, { label: t("range.quarterLabel"), value: "q" }]} value={range} onChange={setRange} />
+          <button className="btn btn-secondary" onClick={exportSummary}><Icon name="download" size={14} /> {t("common.export")}</button>
+          <button className="btn btn-primary" onClick={() => navigate("calendar")}><Icon name="plus" size={14} /> {t("dash.newEvent")}</button>
         </div>
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 16 }}>
-        <KPI label="Active athletes" value={activeCount} delta={`${athletes.length} total`} deltaDir="up" sparkData={[0, activeCount]} sparkColor="var(--lane-4)" />
-        <KPI label="Competitions" value={competitions.length} delta={`${upcomingCount} upcoming`} deltaDir="up" sparkData={[0, competitions.length]} sparkColor="var(--lane-3)" />
-        <KPI label="Medals" value={totalMedals} delta={`${medals.gold} gold`} deltaDir="up" sparkData={[0, totalMedals]} sparkColor="var(--lane-2)" />
-        <KPI label="Travel docs" value={passports.length + visas.length} delta={`${visas.length} visas`} deltaDir="up" sparkData={[0, passports.length + visas.length]} sparkColor="var(--lane-1)" />
+        <KPI label={t("dash.kpiActive")} value={activeCount} delta={`${athletes.length} ${t("dash.kpiTotal")}`} deltaDir="up" sparkData={[0, activeCount]} sparkColor="var(--lane-4)" />
+        <KPI label={t("dash.kpiComps")} value={competitions.length} delta={`${upcomingCount} ${t("dash.kpiUpcoming")}`} deltaDir="up" sparkData={[0, competitions.length]} sparkColor="var(--lane-3)" />
+        <KPI label={t("dash.kpiMedals")} value={totalMedals} delta={`${medals.gold} ${t("dash.kpiGold")}`} deltaDir="up" sparkData={[0, totalMedals]} sparkColor="var(--lane-2)" />
+        <KPI label={t("dash.kpiTravel")} value={passports.length + visas.length} delta={`${visas.length} ${t("dash.kpiVisas")}`} deltaDir="up" sparkData={[0, passports.length + visas.length]} sparkColor="var(--lane-1)" />
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "1.6fr 1fr", gap: 12, marginBottom: 16 }}>
         <div className="card">
           <div className="card-header">
             <div>
-              <div className="card-title">Competition activity</div>
-              <div className="card-subtitle">Race entries &amp; athletes competing · by month</div>
+              <div className="card-title">{t("dash.compActivity")}</div>
+              <div className="card-subtitle">{t("dash.compActivitySub")}</div>
             </div>
             <div className="row" style={{ gap: 12 }}>
-              <LegendDot color="#6b7dff" label="Entries" />
-              <LegendDot color="#f5b14c" label="Athletes" />
+              <LegendDot color="#6b7dff" label={t("dash.legendEntries")} />
+              <LegendDot color="#f5b14c" label={t("dash.legendAthletes")} />
             </div>
           </div>
           <div style={{ padding: 18 }}>
             {!trend.hasData ? (
-              <EmptyState icon="dashboard" title="No competition data" description="Enter athletes into races to see the season activity trend." />
+              <EmptyState icon="dashboard" title={t("dash.noCompData")} description={t("dash.noCompDataDesc")} />
             ) : (
               <PerformanceChart labels={trend.labels} series1={trend.entriesPerMonth} series2={trend.athletesPerMonth} />
             )}
@@ -121,18 +123,18 @@ export function DashboardScreen() {
 
         <div className="card">
           <div className="card-header">
-            <div className="card-title">Medal distribution</div>
+            <div className="card-title">{t("dash.medalDist")}</div>
           </div>
           <div style={{ padding: 22, display: "flex", flexDirection: "column", alignItems: "center", gap: 18 }}>
             {totalMedals === 0 ? (
-              <EmptyState icon="trophy" title="No medals yet" description="Medals tally as you add them to athletes." />
+              <EmptyState icon="trophy" title={t("dash.noMedals")} description={t("dash.noMedalsDesc")} />
             ) : (
               <>
-                <MedalDonut gold={medals.gold} silver={medals.silver} bronze={medals.bronze} />
+                <MedalDonut gold={medals.gold} silver={medals.silver} bronze={medals.bronze} label={t("dash.medals")} />
                 <div style={{ display: "flex", gap: 18, width: "100%", justifyContent: "center" }}>
-                  <MedalLegend color="#f5b14c" label="Gold" value={medals.gold} />
-                  <MedalLegend color="#c9d3df" label="Silver" value={medals.silver} />
-                  <MedalLegend color="#c08c5e" label="Bronze" value={medals.bronze} />
+                  <MedalLegend color="#f5b14c" label={t("dash.gold")} value={medals.gold} />
+                  <MedalLegend color="#c9d3df" label={t("dash.silver")} value={medals.silver} />
+                  <MedalLegend color="#c08c5e" label={t("dash.bronze")} value={medals.bronze} />
                 </div>
               </>
             )}
@@ -143,8 +145,8 @@ export function DashboardScreen() {
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16, alignItems: "start" }}>
         <div className="card">
           <div className="card-header">
-            <div className="card-title">Upcoming competitions</div>
-            <button className="btn btn-ghost btn-sm" onClick={() => navigate("competitions")}>See all <Icon name="chevronRight" size={12} /></button>
+            <div className="card-title">{t("dash.upcoming")}</div>
+            <button className="btn btn-ghost btn-sm" onClick={() => navigate("competitions")}>{t("dash.seeAll")} <Icon name="chevronRight" size={12} /></button>
           </div>
           <div style={{ padding: "6px 0" }}>
             {upcomingComps.map((c) => (
@@ -155,7 +157,7 @@ export function DashboardScreen() {
                   <div className="text-sm muted" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.location}</div>
                 </div>
                 <Badge variant={c.tier === "tier-1" ? "accent" : ""}>{c.type}</Badge>
-                <div className="text-sm" style={{ color: "var(--fg-2)" }}>{c.entries} entered</div>
+                <div className="text-sm" style={{ color: "var(--fg-2)" }}>{c.entries} {t("dash.entered")}</div>
                 <Icon name="chevronRight" size={14} style={{ color: "var(--fg-3)" }} />
               </button>
             ))}
@@ -164,12 +166,12 @@ export function DashboardScreen() {
 
         <div className="card">
           <div className="card-header">
-            <div className="card-title">Recent activity</div>
+            <div className="card-title">{t("dash.recentActivity")}</div>
             <span className="text-xs muted mono">LIVE</span>
           </div>
           <div style={{ padding: "8px 0" }}>
             {activity.length === 0 ? (
-              <div className="text-sm muted" style={{ padding: "12px 18px" }}>No recent activity.</div>
+              <div className="text-sm muted" style={{ padding: "12px 18px" }}>{t("dash.noActivity")}</div>
             ) : activity.slice(0, 6).map((a) => (
               <div key={a.id} className="row" style={{ padding: "9px 18px", gap: 12 }}>
                 <Avatar name={a.user} initials={a.initials} color={a.color} size="sm" />
@@ -190,13 +192,13 @@ export function DashboardScreen() {
           <div className="card-header">
             <div className="card-title row" style={{ gap: 6 }}>
               <Icon name="warningTri" size={14} style={{ color: "var(--warning)" }} />
-              Passport & visa expiries
+              {t("dash.expiries")}
             </div>
             <Badge variant={expiries.some((e) => (e.days as number) < 0) ? "danger" : "warning"}>{expiries.length}</Badge>
           </div>
           <div style={{ padding: "8px 0" }}>
             {expiries.length === 0 ? (
-              <div className="text-sm muted" style={{ padding: "12px 18px" }}>No documents expiring in the next 120 days.</div>
+              <div className="text-sm muted" style={{ padding: "12px 18px" }}>{t("dash.noExpiries")}</div>
             ) : (
               expiries.map((e, i) => {
                 const d = e.days as number;
@@ -207,7 +209,7 @@ export function DashboardScreen() {
                       <Icon name={e.kind === "Passport" ? "globe" : "fileText"} size={14} />
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div className="fw-600 text-md">{d < 0 ? "Expired" : `Expires in ${d} days`}</div>
+                      <div className="fw-600 text-md">{d < 0 ? t("dash.expired") : t("dash.expiresInDays", { n: d, u: d === 1 ? t("time.day") : t("time.days") })}</div>
                       <div className="text-sm muted" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.label}</div>
                     </div>
                     <span className="text-xs mono muted">{e.to}</span>
@@ -268,7 +270,7 @@ function PerformanceChart({ labels, series1, series2 }: { labels: string[]; seri
   );
 }
 
-function MedalDonut({ gold, silver, bronze }: { gold: number; silver: number; bronze: number }) {
+function MedalDonut({ gold, silver, bronze, label }: { gold: number; silver: number; bronze: number; label: string }) {
   const total = gold + silver + bronze;
   const r = 60;
   const c = 2 * Math.PI * r;
@@ -292,7 +294,7 @@ function MedalDonut({ gold, silver, bronze }: { gold: number; silver: number; br
         return el;
       })}
       <text x="90" y="86" textAnchor="middle" style={{ font: "800 28px var(--font-display)", fill: "var(--fg-1)", letterSpacing: "-0.03em" }}>{total}</text>
-      <text x="90" y="104" textAnchor="middle" style={{ font: "600 11px var(--font-ui)", fill: "var(--fg-3)", letterSpacing: "0.05em", textTransform: "uppercase" }}>MEDALS</text>
+      <text x="90" y="104" textAnchor="middle" style={{ font: "600 11px var(--font-ui)", fill: "var(--fg-3)", letterSpacing: "0.05em", textTransform: "uppercase" }}>{label}</text>
     </svg>
   );
 }

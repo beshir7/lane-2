@@ -7,6 +7,7 @@
 import React, { useState } from "react";
 import { Icon } from "@/components/icon";
 import { Badge } from "@/components/primitives";
+import { useLane } from "@/components/lane-provider";
 import type { Passport, Visa } from "@/lib/types";
 import { PassportManager, VisaManager } from "./travel-managers";
 
@@ -19,14 +20,16 @@ function daysUntil(iso: string): number | null {
 }
 
 function ExpiryBadge({ date }: { date: string }) {
+  const { t } = useLane();
   const d = daysUntil(date);
   if (d == null) return <span className="text-sm muted">—</span>;
-  if (d < 0) return <Badge variant="danger" dot>Expired</Badge>;
-  if (d < 60) return <Badge variant="warning" dot>{d}d left</Badge>;
-  return <Badge variant="success" dot>Valid</Badge>;
+  if (d < 0) return <Badge variant="danger" dot>{t("trav.expired")}</Badge>;
+  if (d < 60) return <Badge variant="warning" dot>{t("trav.daysLeft", { n: d })}</Badge>;
+  return <Badge variant="success" dot>{t("trav.valid")}</Badge>;
 }
 
 export function TravelTab({ athleteId, passports, visas }: { athleteId: string; passports: Passport[]; visas: Visa[] }) {
+  const { t } = useLane();
   const [managePassports, setManagePassports] = useState(false);
   const [manageVisas, setManageVisas] = useState(false);
 
@@ -35,16 +38,16 @@ export function TravelTab({ athleteId, passports, visas }: { athleteId: string; 
       {/* ---- Passports ---- */}
       <div className="card">
         <div className="card-header">
-          <div className="card-title">Passports</div>
+          <div className="card-title">{t("trav.passports")}</div>
           <button className="btn btn-secondary btn-sm" onClick={() => setManagePassports(true)}>
-            <Icon name="edit" size={13} /> Manage passports
+            <Icon name="edit" size={13} /> {t("trav.managePassports")}
           </button>
         </div>
         {passports.length === 0 ? (
-          <div style={{ padding: 18 }} className="text-sm muted">No passport on file.</div>
+          <div style={{ padding: 18 }} className="text-sm muted">{t("trav.noPassport")}</div>
         ) : (
           <table className="table">
-            <thead><tr><th>Number</th><th>Nation</th><th>Issued</th><th>Expiry</th><th>Status</th></tr></thead>
+            <thead><tr><th>{t("trav.number")}</th><th>{t("trav.nation")}</th><th>{t("trav.issued")}</th><th>{t("trav.expiry")}</th><th>{t("trav.status")}</th></tr></thead>
             <tbody>
               {passports.map((p) => (
                 <tr key={p.id} onClick={() => setManagePassports(true)} style={{ cursor: "pointer" }}>
@@ -63,16 +66,16 @@ export function TravelTab({ athleteId, passports, visas }: { athleteId: string; 
       {/* ---- Visas ---- */}
       <div className="card">
         <div className="card-header">
-          <div className="card-title">Visas</div>
+          <div className="card-title">{t("trav.visas")}</div>
           <button className="btn btn-secondary btn-sm" onClick={() => setManageVisas(true)}>
-            <Icon name="edit" size={13} /> Manage visas
+            <Icon name="edit" size={13} /> {t("trav.manageVisas")}
           </button>
         </div>
         {visas.length === 0 ? (
-          <div style={{ padding: 18 }} className="text-sm muted">No visa on file.</div>
+          <div style={{ padding: 18 }} className="text-sm muted">{t("trav.noVisa")}</div>
         ) : (
           <table className="table">
-            <thead><tr><th>Type</th><th>Valid from</th><th>Valid to</th><th>Embassy</th><th>Status</th></tr></thead>
+            <thead><tr><th>{t("trav.type")}</th><th>{t("trav.validFrom")}</th><th>{t("trav.validTo")}</th><th>{t("trav.embassy")}</th><th>{t("trav.status")}</th></tr></thead>
             <tbody>
               {visas.map((v) => (
                 <tr key={v.id} onClick={() => setManageVisas(true)} style={{ cursor: "pointer" }}>

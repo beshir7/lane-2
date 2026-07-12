@@ -7,7 +7,6 @@ import React, { useEffect } from "react";
 import { Sidebar } from "./sidebar";
 import { Topbar } from "./topbar";
 import { CommandPalette } from "./command-palette";
-import { TweaksPanel } from "./tweaks-panel";
 import { AuthRouter } from "@/features/auth/components/auth-screen";
 import { useLane } from "./lane-provider";
 
@@ -38,7 +37,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <div className="app-content">{loading ? <ShellLoader /> : children}</div>
       </div>
       <CommandPalette />
-      <TweaksPanel />
     </div>
   );
 }

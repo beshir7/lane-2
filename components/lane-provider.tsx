@@ -141,9 +141,11 @@ interface LaneContextValue {
 
   lang: Lang;
   setLang: (l: Lang) => void;
-  t: (key: string) => string;
+  t: (key: string, vars?: Record<string, string | number>) => string;
 
   navigate: (page: Page | string, arg?: string | null) => void;
+  // Warm the client Router Cache for a route so a later navigate() is instant.
+  prefetch: (page: Page | string, arg?: string | null) => void;
 }
 
 const LaneCtx = createContext<LaneContextValue | null>(null);
@@ -175,7 +177,9 @@ export function LaneProvider({ children }: { children: ReactNode }) {
   const [competitions, setCompetitions] = useState<Competition[]>([]);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [results, setResults] = useState<ResultsMap>({});
-  const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  // Notifications are derived live from real data (races, expiries); this set
+  // tracks which the user has marked read.
+  const [readNotifIds, setReadNotifIds] = useState<Set<string>>(new Set());
   const [documents, setDocuments] = useState<LaneDocument[]>([]);
   const [users, setUsers] = useState<TeamUser[]>([]);
   const [posts, setPosts] = useState<Post[]>([]);
@@ -205,7 +209,7 @@ export function LaneProvider({ children }: { children: ReactNode }) {
     setLangState(l);
     try { localStorage.setItem(LANG_KEY, l); } catch {}
   }, []);
-  const t = useCallback((key: string) => translate(lang, key), [lang]);
+  const t = useCallback((key: string, vars?: Record<string, string | number>) => translate(lang, key, vars), [lang]);
 
   // ----- Tweaks (persisted) -----
   const [tweaks, setTweaks] = useState<Tweaks>(TWEAK_DEFAULTS);
@@ -269,7 +273,8 @@ export function LaneProvider({ children }: { children: ReactNode }) {
   }, [supabase]);
 
   // ----- Navigation -----
-  const navigate = useCallback<LaneContextValue["navigate"]>((page, arg) => {
+  // Resolve a page (+optional id) to its URL, shared by navigate() and prefetch().
+  const hrefFor = useCallback((page: Page | string, arg?: string | null) => {
     const routes: Record<string, string> = {
       dashboard: "/dashboard",
       athletes: "/athletes",
@@ -283,11 +288,17 @@ export function LaneProvider({ children }: { children: ReactNode }) {
       notifications: "/notifications",
       role: "/role",
     };
-    if (page === "athlete-detail") return router.push(`/athletes/${arg}`);
-    if (page === "competition-detail") return router.push(`/races/${arg}`);
-    if (page === "settings") return router.push(arg ? `/settings?tab=${arg}` : "/settings");
-    router.push(routes[page as string] || `/${page}`);
-  }, [router]);
+    if (page === "athlete-detail") return `/athletes/${arg}`;
+    if (page === "competition-detail") return `/races/${arg}`;
+    if (page === "settings") return arg ? `/settings?tab=${arg}` : "/settings";
+    return routes[page as string] || `/${page}`;
+  }, []);
+  const navigate = useCallback<LaneContextValue["navigate"]>((page, arg) => {
+    router.push(hrefFor(page, arg));
+  }, [router, hrefFor]);
+  const prefetch = useCallback<LaneContextValue["prefetch"]>((page, arg) => {
+    try { router.prefetch(hrefFor(page, arg)); } catch { /* prefetch is best-effort */ }
+  }, [router, hrefFor]);
 
   // ----- Athletes -----
   const createAthlete = useCallback((data: Partial<Athlete>) => {
@@ -484,15 +495,83 @@ export function LaneProvider({ children }: { children: ReactNode }) {
     push({ title: "Entry removed", variant: "info" });
   }, [push, persist, supabase, recount]);
 
-  // ----- Notifications -----
+  // ----- Notifications (derived live from real data) -----
+  // Built from upcoming races and passport / visa / document expiries so the
+  // bell always reflects true activity and deadlines — no seeded data.
+  const notifications = useMemo<AppNotification[]>(() => {
+    const dayMs = 86400000;
+    const start = new Date(); start.setHours(0, 0, 0, 0);
+    const daysUntil = (iso?: string | null) => {
+      if (!iso) return null;
+      const d = new Date(iso + "T00:00");
+      return isNaN(d.getTime()) ? null : Math.round((d.getTime() - start.getTime()) / dayMs);
+    };
+    const dayWord = (n: number) => (Math.abs(n) === 1 ? translate(lang, "time.day") : translate(lang, "time.days"));
+    const nameOf = (id: string) => { const a = athletes.find((x) => x.id === id); return a ? `${a.first} ${a.last}` : ""; };
+    const tr = (k: string) => translate(lang, k);
+    const list: AppNotification[] = [];
+
+    // Upcoming races within the next 30 days.
+    competitions.forEach((c) => {
+      const d = daysUntil(c.date);
+      if (d == null || d < 0 || d > 30) return;
+      const entered = entries.filter((e) => e.competitionId === c.id).length;
+      list.push({
+        id: `race-${c.id}`, type: d <= 3 ? "warn" : "info", icon: "trophy", category: "competition",
+        title: d === 0 ? tr("notif.raceToday") : `${tr("notif.raceIn")} ${d} ${dayWord(d)}`,
+        body: `${c.name}${c.location ? " · " + c.location : ""} · ${entered} ${tr("dash.entered")}`,
+        time: c.date, unread: true, page: "competition-detail", arg: c.id,
+      });
+    });
+    // Passport expiries (up to 90 days out, or expired within the last 30).
+    passports.forEach((p) => {
+      const d = daysUntil(p.expiry);
+      if (d == null || d > 90 || d < -30) return;
+      list.push({
+        id: `pp-${p.id}`, type: d < 0 ? "alert" : d < 30 ? "warn" : "info", icon: "globe", category: "document",
+        title: d < 0 ? tr("notif.passportExpired") : `${tr("notif.passportIn")} ${d} ${dayWord(d)}`,
+        body: nameOf(p.athleteId), time: p.expiry || "", unread: true, page: "athlete-detail", arg: p.athleteId,
+      });
+    });
+    // Visa expiries.
+    visas.forEach((v) => {
+      if (v.archived) return;
+      const d = daysUntil(v.validTo);
+      if (d == null || d > 90 || d < -30) return;
+      list.push({
+        id: `visa-${v.id}`, type: d < 0 ? "alert" : d < 30 ? "warn" : "info", icon: "fileText", category: "document",
+        title: d < 0 ? tr("notif.visaExpired") : `${tr("notif.visaIn")} ${d} ${dayWord(d)}`,
+        body: `${nameOf(v.athleteId)}${v.type ? " · " + v.type : ""}`, time: v.validTo || "", unread: true, page: "athlete-detail", arg: v.athleteId,
+      });
+    });
+    // Other document expiries (e.g. contracts).
+    documents.forEach((doc) => {
+      const d = daysUntil(doc.expires);
+      if (d == null || d > 90 || d < -30) return;
+      list.push({
+        id: `doc-${doc.id}`, type: d < 0 ? "alert" : d < 30 ? "warn" : "info", icon: "fileText", category: "document",
+        title: d < 0 ? tr("notif.docExpired") : `${tr("notif.docIn")} ${d} ${dayWord(d)}`,
+        body: doc.name, time: doc.expires || "", unread: true, page: "documents",
+      });
+    });
+
+    // Soonest / most overdue first, then apply read state.
+    list.sort((a, b) => (a.time || "").localeCompare(b.time || ""));
+    return list.map((n) => ({ ...n, unread: !readNotifIds.has(n.id) }));
+  }, [competitions, entries, passports, visas, documents, athletes, readNotifIds, lang]);
+
   const markAllRead = useCallback(() => {
-    setNotifications((prev) => prev.map((n) => ({ ...n, unread: false })));
+    setReadNotifIds((prev) => {
+      const next = new Set(prev);
+      notifications.forEach((n) => next.add(n.id));
+      return next;
+    });
     push({ title: "All caught up", variant: "success" });
-  }, [push]);
+  }, [push, notifications]);
 
   // ----- Reset everything -----
   const resetAll = useCallback(() => {
-    setAthletes([]); setCompetitions([]); setEvents([]); setResults({}); setNotifications([]); setDocuments([]);
+    setAthletes([]); setCompetitions([]); setEvents([]); setResults({}); setReadNotifIds(new Set()); setDocuments([]);
     setUsers([]); setPosts([]); setActivity([]); setAudit([]); setSessions([]); setPassports([]); setVisas([]); setOrganizers([]); setEntries([]);
     if (userIdRef.current) persist(clearAllRows(supabase, userIdRef.current).then(() => ({ error: null })));
     push({ title: "All data cleared", variant: "info" });
