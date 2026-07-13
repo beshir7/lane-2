@@ -236,8 +236,17 @@ function ForgotScreen({ onSwitch }: { onSwitch: (v: AuthView) => void }) {
   );
 }
 
+// Turn a Supabase recovery-link error code into a friendly explanation.
+function prettyLinkError(code?: string | null, desc?: string | null): string {
+  if (code === "otp_expired") return "This reset link has expired or was already used. Request a fresh one below.";
+  if (code === "access_denied") return "This reset link is no longer valid. Request a fresh one below.";
+  return (desc && decodeURIComponent(desc.replace(/\+/g, " "))) || "This reset link is invalid or has expired. Request a fresh one below.";
+}
+
 // Reached from the password-recovery email link (/reset). Supabase attaches a
-// recovery session (via ?code=), then the user picks a new password.
+// recovery session (via ?code= or a URL hash), then the user picks a new
+// password. If the link is invalid/expired/consumed, we say so clearly and let
+// the user request a new link inline instead of showing a form that can't work.
 export function ResetScreen() {
   const supabase = createClient();
   const router = useRouter();
@@ -246,11 +255,47 @@ export function ResetScreen() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [done, setDone] = useState(false);
+  // Gate the form on a real recovery session.
+  const [phase, setPhase] = useState<"checking" | "ready" | "invalid">("checking");
+  const [linkError, setLinkError] = useState("");
+  // Inline resend so a dead link isn't a dead end.
+  const [resendEmail, setResendEmail] = useState("");
+  const [resendBusy, setResendBusy] = useState(false);
+  const [resent, setResent] = useState(false);
 
   useEffect(() => {
-    // Exchange the recovery code in the URL for a session so updateUser works.
-    const code = new URLSearchParams(window.location.search).get("code");
-    if (code) supabase.auth.exchangeCodeForSession(code).catch(() => {});
+    let active = true;
+    let settled = false;
+    const ready = () => { if (active && !settled) { settled = true; setPhase("ready"); } };
+    const invalid = (code?: string | null, desc?: string | null) => {
+      if (active && !settled) { settled = true; setLinkError(prettyLinkError(code, desc)); setPhase("invalid"); }
+    };
+
+    // A recovery session can arrive asynchronously as the client parses the URL.
+    const { data: sub } = supabase.auth.onAuthStateChange((event: string, session: unknown) => {
+      if (event === "PASSWORD_RECOVERY" || session) ready();
+    });
+
+    const qs = new URLSearchParams(window.location.search);
+    const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+    const errCode = qs.get("error_code") || hash.get("error_code");
+    const errDesc = qs.get("error_description") || hash.get("error_description");
+    const code = qs.get("code");
+
+    (async () => {
+      if (errCode) { invalid(errCode, errDesc); return; }
+      if (code) {
+        const { error } = await supabase.auth.exchangeCodeForSession(code);
+        if (error) invalid("otp_expired", error.message); else ready();
+        return;
+      }
+      const { data } = await supabase.auth.getSession();
+      if (data.session) ready();
+    })();
+
+    // Fallback: if no session or error resolved the link, treat it as invalid.
+    const timer = setTimeout(() => invalid("otp_expired"), 2500);
+    return () => { active = false; clearTimeout(timer); sub.subscription.unsubscribe(); };
   }, [supabase]);
 
   const submit = async (e: React.FormEvent) => {
@@ -267,6 +312,15 @@ export function ResetScreen() {
     setTimeout(() => router.push("/signin"), 1200);
   };
 
+  const resend = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!resendEmail.includes("@")) return;
+    setResendBusy(true);
+    await supabase.auth.resetPasswordForEmail(resendEmail, { redirectTo: `${window.location.origin}/reset` });
+    setResendBusy(false);
+    setResent(true);
+  };
+
   if (done) {
     return (
       <AuthShell kicker="Reset password" title="Password updated" subtitle="Redirecting you to sign in…">
@@ -274,6 +328,43 @@ export function ResetScreen() {
           <Icon name="success" size={20} style={{ color: "var(--success)" }} />
           <div className="text-sm">You can now sign in with your new password.</div>
         </div>
+      </AuthShell>
+    );
+  }
+
+  if (phase === "checking") {
+    return (
+      <AuthShell kicker="Reset password" title="Verifying your link" subtitle="One moment…">
+        <div className="text-sm muted">Checking your recovery link…</div>
+      </AuthShell>
+    );
+  }
+
+  if (phase === "invalid") {
+    return (
+      <AuthShell kicker="Reset password" title="Link expired or invalid" subtitle="Password reset links can only be used once and expire quickly.">
+        {resent ? (
+          <div className="card card-pad row" style={{ padding: 16, background: "var(--success-soft)", borderColor: "var(--success)", gap: 10 }}>
+            <Icon name="success" size={20} style={{ color: "var(--success)" }} />
+            <div className="text-sm">New link sent to {resendEmail}. Open it right away — and avoid link previews / scanners that can use it up.</div>
+          </div>
+        ) : (
+          <form onSubmit={resend} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <div className="card card-pad row" style={{ padding: 14, background: "var(--danger-soft)", borderColor: "var(--danger)", gap: 10 }}>
+              <Icon name="alert" size={18} style={{ color: "var(--danger)", flexShrink: 0 }} />
+              <div className="text-sm">{linkError}</div>
+            </div>
+            <div className="field">
+              <label className="field-label">Email</label>
+              <div className="input-group">
+                <Icon name="mail" size={15} />
+                <input className="input" type="email" value={resendEmail} onChange={(e) => setResendEmail(e.target.value)} placeholder="you@team.io" autoComplete="email" />
+              </div>
+            </div>
+            <button type="submit" className="btn btn-primary btn-lg" disabled={resendBusy || !resendEmail.includes("@")}>{resendBusy ? "Sending…" : "Send a new reset link"}</button>
+            <button type="button" className="btn btn-ghost" onClick={() => router.push("/signin")}><Icon name="chevronLeft" size={14} /> Back to sign in</button>
+          </form>
+        )}
       </AuthShell>
     );
   }
