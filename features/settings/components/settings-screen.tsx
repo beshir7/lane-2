@@ -623,35 +623,113 @@ function PasswordCard() {
   const push = useToast();
   const { currentUser, t } = useLane();
   const [supabase] = useState(() => createClient());
+  // Identity re-proof: either the current password, or a 6-digit code we email
+  // (Supabase reauthenticate nonce) for when the user forgot their password.
+  const [mode, setMode] = useState<"current" | "code">("current");
   const [cur, setCur] = useState("");
+  const [emailCode, setEmailCode] = useState("");
+  const [codeSent, setCodeSent] = useState(false);
+  const [sendingCode, setSendingCode] = useState(false);
   const [next, setNext] = useState("");
   const [confirm, setConfirm] = useState("");
+  const [code, setCode] = useState(""); // TOTP (only when 2FA is on)
+  // Id of the verified TOTP factor, if two-factor is enabled. When set, Supabase
+  // requires an AAL2 session (a fresh authenticator code) before changing the
+  // password — an email code cannot satisfy this by design.
+  const [mfaFactorId, setMfaFactorId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      const { data } = await supabase.auth.mfa.listFactors();
+      if (!active) return;
+      const verified = (data?.totp || []).find((f: { id: string; status: string }) => f.status === "verified");
+      setMfaFactorId(verified?.id || null);
+    })();
+    return () => { active = false; };
+  }, [supabase]);
+
+  // Email a 6-digit reauthentication code to the signed-in address.
+  const sendCode = async () => {
+    setSendingCode(true);
+    const { error } = await supabase.auth.reauthenticate();
+    setSendingCode(false);
+    if (error) { push({ title: error.message, variant: "danger" }); return; }
+    setCodeSent(true);
+    push({ title: t("set.codeSent"), variant: "success" });
+  };
+
+  // Switch to "forgot current password" mode and email the code immediately.
+  const useEmailCode = () => { setMode("code"); sendCode(); };
+  const useCurrentPassword = () => { setMode("current"); setCodeSent(false); setEmailCode(""); };
 
   const update = async () => {
     if (next.length < 8) { push({ title: t("set.pwTooShort"), variant: "danger" }); return; }
     if (next !== confirm) { push({ title: t("set.pwMismatch"), variant: "danger" }); return; }
     if (!currentUser?.email) { push({ title: t("set.noEmail"), variant: "danger" }); return; }
+    if (mode === "code" && emailCode.length !== 6) { push({ title: t("set.enterEmailCode"), variant: "danger" }); return; }
+    if (mfaFactorId && code.length !== 6) { push({ title: t("set.pwCodeRequired"), variant: "danger" }); return; }
     setBusy(true);
-    // Verify the current password by re-authenticating before changing it.
-    const { error: authErr } = await supabase.auth.signInWithPassword({ email: currentUser.email, password: cur });
-    if (authErr) { setBusy(false); push({ title: t("set.pwCurrentWrong"), variant: "danger" }); return; }
-    const { error } = await supabase.auth.updateUser({ password: next });
+    // Current-password mode: re-authenticate to prove identity (also refreshes
+    // the session so a non-nonce password update is accepted).
+    if (mode === "current") {
+      const { error: authErr } = await supabase.auth.signInWithPassword({ email: currentUser.email, password: cur });
+      if (authErr) { setBusy(false); push({ title: t("set.pwCurrentWrong"), variant: "danger" }); return; }
+    }
+    // With two-factor on, elevate the session to AAL2 with a fresh TOTP code, or
+    // Supabase rejects the password update.
+    if (mfaFactorId) {
+      const { error: mfaErr } = await supabase.auth.mfa.challengeAndVerify({ factorId: mfaFactorId, code });
+      if (mfaErr) { setBusy(false); push({ title: mfaErr.message || t("set.invalidCode"), variant: "danger" }); return; }
+    }
+    // Code mode passes the emailed nonce; current mode relies on the recent login.
+    const { error } = mode === "code"
+      ? await supabase.auth.updateUser({ password: next, nonce: emailCode })
+      : await supabase.auth.updateUser({ password: next });
     setBusy(false);
     if (error) { push({ title: error.message, variant: "danger" }); return; }
     push({ title: t("set.passwordUpdated"), variant: "success" });
-    setCur(""); setNext(""); setConfirm("");
+    setCur(""); setNext(""); setConfirm(""); setCode(""); setEmailCode(""); setCodeSent(false); setMode("current");
   };
+
+  const canSubmit = !!next && !!confirm && (mode === "current" ? !!cur : emailCode.length === 6) && (!mfaFactorId || code.length === 6);
 
   return (
     <SettingCard title={t("set.password")} desc={t("set.passwordDesc")}>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
-        <div className="field"><label className="field-label">{t("set.current")}</label><input className="input" type="password" value={cur} onChange={(e) => setCur(e.target.value)} /></div>
+        {mode === "current" ? (
+          <div className="field"><label className="field-label">{t("set.current")}</label><input className="input" type="password" value={cur} onChange={(e) => setCur(e.target.value)} /></div>
+        ) : (
+          <div className="field"><label className="field-label">{t("set.emailCode")}</label><input className="input mono" inputMode="numeric" placeholder="123456" value={emailCode} onChange={(e) => setEmailCode(e.target.value.replace(/\D/g, "").slice(0, 6))} /></div>
+        )}
         <div className="field"><label className="field-label">{t("set.new")}</label><input className="input" type="password" value={next} onChange={(e) => setNext(e.target.value)} /></div>
         <div className="field"><label className="field-label">{t("set.confirm")}</label><input className="input" type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} /></div>
       </div>
+
+      {mode === "current" ? (
+        <button type="button" className="btn btn-ghost btn-sm" onClick={useEmailCode} style={{ marginTop: 8, padding: "2px 0", color: "var(--accent)" }}>{t("set.forgotCurrent")}</button>
+      ) : (
+        <div className="row" style={{ marginTop: 8, gap: 10, flexWrap: "wrap" }}>
+          <button type="button" className="btn btn-secondary btn-sm" onClick={sendCode} disabled={sendingCode}>
+            <Icon name="mail" size={13} /> {sendingCode ? t("set.sending") : codeSent ? t("set.sendNewCode") : t("set.sendCode")}
+          </button>
+          {codeSent && <span className="text-xs muted">{t("set.emailCodeHint")}</span>}
+          <span className="spacer" />
+          <button type="button" className="btn btn-ghost btn-sm" onClick={useCurrentPassword}>{t("set.usePassword")}</button>
+        </div>
+      )}
+
+      {mfaFactorId && (
+        <div className="field" style={{ marginTop: 10 }}>
+          <label className="field-label">{t("set.pwMfaCode")}</label>
+          <input className="input mono" inputMode="numeric" placeholder="123456" style={{ maxWidth: 160 }} value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))} />
+          <span className="field-hint">{t("set.pwMfaHint")}</span>
+        </div>
+      )}
+
       <div className="row" style={{ marginTop: 14, justifyContent: "flex-end" }}>
-        <button className="btn btn-primary" onClick={update} disabled={busy || !cur || !next || !confirm}>{busy ? t("set.updating") : t("set.updatePassword")}</button>
+        <button className="btn btn-primary" onClick={update} disabled={busy || !canSubmit}>{busy ? t("set.updating") : t("set.updatePassword")}</button>
       </div>
     </SettingCard>
   );
