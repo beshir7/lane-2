@@ -5,12 +5,14 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "@/components/icon";
 import { Avatar, Badge, ConfirmModal, Drawer, Modal, Segmented } from "@/components/primitives";
-import { DateStack, EntryStatusBadge, FilterDropdown } from "@/components/shared";
+import { DateStack, EntryStatusBadge, FilterDropdown, Stat } from "@/components/shared";
 import { PlacementStats } from "@/components/placement-stats";
 import { useLane } from "@/components/lane-provider";
 import { localeOf } from "@/lib/i18n";
 import { ALL_DISCIPLINES } from "@/lib/reference";
 import { placementColor, downloadWordDoc } from "@/utils";
+import { esc } from "@/utils/print";
+import { useOutsideClick } from "@/hooks/use-outside-click";
 import { RACE_LEVELS, FOLLOWED_BY_OPTIONS } from "@/lib/types";
 import type { Athlete, Competition, CompetitionStatus, EntryStatus, Organizer, RaceCategory, RaceEntry } from "@/lib/types";
 import { OrganizerPicker } from "@/features/organizers/components/organizer-picker";
@@ -150,11 +152,7 @@ function PeriodFilter({
   const { t, lang } = useLane();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const click = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
-    document.addEventListener("mousedown", click);
-    return () => document.removeEventListener("mousedown", click);
-  }, []);
+  useOutsideClick(ref, () => setOpen(false), open);
 
   const monthLabel = month
     ? new Date(month + "-01T00:00").toLocaleDateString(localeOf(lang), { month: "short", year: "numeric" })
@@ -255,13 +253,7 @@ function CategorySearchFilter({
 
   const commit = () => { const v = value.trim(); if (v) onCommit(v); };
 
-  useEffect(() => {
-    const onClick = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) { setOpen(false); commit(); }
-    };
-    document.addEventListener("mousedown", onClick);
-    return () => document.removeEventListener("mousedown", onClick);
-  });
+  useOutsideClick(ref, () => { setOpen(false); commit(); }, open);
 
   // The token being typed is the text after the last "+".
   const parts = value.split("+");
@@ -602,10 +594,10 @@ function RacePeek({ race, entries, athletes, onEditResult, onEditEntry, onClose,
         {/* Meta row — Add athlete sits alongside Date / Venue / Level / Entries
             so an athlete can be entered without leaving this drawer. */}
         <div className="row" style={{ gap: 8, flexWrap: "wrap", alignItems: "stretch" }}>
-          <PeekMeta label={t("rs.date")} value={race.date || "—"} mono />
-          <PeekMeta label={t("cd.venue")} value={[race.location, race.country].filter(Boolean).join(", ") || "—"} />
-          {race.level && <PeekMeta label={t("cd.level")} value={race.level} />}
-          <PeekMeta label={t("rs.entries")} value={String(entries.length)} />
+          <Stat variant="meta" label={t("rs.date")} value={race.date || "—"} mono />
+          <Stat variant="meta" label={t("cd.venue")} value={[race.location, race.country].filter(Boolean).join(", ") || "—"} />
+          {race.level && <Stat variant="meta" label={t("cd.level")} value={race.level} />}
+          <Stat variant="meta" label={t("rs.entries")} value={String(entries.length)} />
           <button
             className="btn btn-primary"
             onClick={() => setAdding(true)}
@@ -766,15 +758,6 @@ function QuickAddAthleteModal({ race, athletes, existingIds, onClose }: { race: 
         </div>
       </div>
     </Modal>
-  );
-}
-
-function PeekMeta({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
-  return (
-    <div className="card card-pad" style={{ padding: "8px 12px", minWidth: 90 }}>
-      <div className="text-xs muted" style={{ textTransform: "uppercase", letterSpacing: "0.04em" }}>{label}</div>
-      <div className={`fw-700${mono ? " mono" : ""}`} style={{ fontSize: 13, marginTop: 2 }}>{value}</div>
-    </div>
   );
 }
 
@@ -1028,7 +1011,6 @@ export function CompetitionFormModal({ competition, onClose, onSave, organizers,
   // for appearance fee, prize money and travel details. Generated as Word.
   const generateFoglio = (withAthletes: boolean) => {
     setFoglioAsk(false);
-    const esc = (v: unknown) => String(v ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]!));
     const org = `${form.contactSurname || ""} ${form.contactName || ""}`.trim() || organizers.find((o) => o.id === form.organizerId)?.name || "";
     const events = (form.events as string[]).join(" · ") || "—";
     const header = `<table><tr><th style="width:60%">${esc(form.name)}</th><th>${esc([form.location, form.country].filter(Boolean).join(" · "))}</th><th style="width:70pt">${esc(form.level || "")}</th></tr></table>`;

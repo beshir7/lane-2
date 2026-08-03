@@ -9,12 +9,12 @@ import { BigStat, EntryStatusBadge, InfoRow, StatusBadge } from "@/components/sh
 import { localeOf } from "@/lib/i18n";
 import type { Athlete, Competition, RaceEntry, Whereabouts } from "@/lib/types";
 import { placementColor } from "@/utils";
+import { daysUntil, toLocalIso, todayIso } from "@/utils/dates";
+import { GENDER_COLOR } from "@/utils/athlete";
 import { useState } from "react";
 import { printAthleteDossier } from "../athlete-print";
 import { AthleteFormModal } from "./athlete-form-modal";
 import { TravelTab } from "./athlete-travel";
-
-const GENDER_COLOR: Record<string, string> = { F: "#f55b6e", M: "#5b6ef5", X: "var(--fg-1)" };
 
 export function AthleteProfile({ athleteId }: { athleteId: string }) {
   const { athletes, competitions, entries, passports, visas, navigate, updateAthlete, deleteAthlete, t, lang } = useLane();
@@ -31,10 +31,10 @@ export function AthleteProfile({ athleteId }: { athleteId: string }) {
 
   // Split the athlete's entries by their competition's date: the Competitions
   // tab shows what's still to come, History shows what's already been run.
-  const todayIso = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; })();
+  const cutoff = todayIso();
   const dateOf = (e: RaceEntry) => competitions.find((c) => c.id === e.competitionId)?.date || "";
-  const upcomingEntries = athleteEntries.filter((e) => dateOf(e) >= todayIso);
-  const pastEntries = athleteEntries.filter((e) => dateOf(e) && dateOf(e) < todayIso);
+  const upcomingEntries = athleteEntries.filter((e) => dateOf(e) >= cutoff);
+  const pastEntries = athleteEntries.filter((e) => dateOf(e) && dateOf(e) < cutoff);
 
   return (
     <div className="page">
@@ -128,16 +128,14 @@ export function AthleteProfile({ athleteId }: { athleteId: string }) {
 function OverviewTab({ athlete, entries, competitions, navigate }: { athlete: Athlete; entries: RaceEntry[]; competitions: Competition[]; navigate: (page: string, arg?: string | null) => void }) {
   const { t } = useLane();
   const comp = (id: string) => competitions.find((c) => c.id === id);
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayIso();
   // Real next event: the athlete's soonest race dated today or later.
   const nextEntry = entries
     .filter((e) => { const c = comp(e.competitionId); return !!c && (c.date || "") >= today; })
     .sort((a, b) => (comp(a.competitionId)?.date || "").localeCompare(comp(b.competitionId)?.date || ""))[0];
   const nextComp = nextEntry ? comp(nextEntry.competitionId) : undefined;
   const nextDiscipline = nextEntry?.discipline || "";
-  const daysUntil = nextComp
-    ? Math.max(0, Math.round((+new Date(nextComp.date + "T00:00") - +new Date(today + "T00:00")) / 86400000))
-    : null;
+  const daysAway = nextComp ? Math.max(0, daysUntil(nextComp.date) ?? 0) : null;
   return (
     <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 12 }}>
       <div className="col" style={{ gap: 12 }}>
@@ -222,7 +220,7 @@ function OverviewTab({ athlete, entries, competitions, navigate }: { athlete: At
                 <Icon name="chevronRight" size={16} style={{ color: "var(--fg-3)", flexShrink: 0 }} />
               </div>
               <div className="text-sm muted" style={{ marginTop: 4 }}>
-                {nextComp.date} · {daysUntil === 0 ? t("notif.raceToday") : `${t("prof.in")} ${daysUntil} ${daysUntil === 1 ? t("time.day") : t("time.days")}`}{nextComp.location ? ` · ${nextComp.location}` : ""}
+                {nextComp.date} · {daysAway === 0 ? t("notif.raceToday") : `${t("prof.in")} ${daysAway} ${daysAway === 1 ? t("time.day") : t("time.days")}`}{nextComp.location ? ` · ${nextComp.location}` : ""}
               </div>
               {nextDiscipline && <div className="text-xs muted" style={{ marginTop: 2 }}>{nextDiscipline}</div>}
               <div className="row" style={{ marginTop: 14, gap: 6 }}>
@@ -402,7 +400,7 @@ function WhereaboutsModal({ initial, onClose, onSave }: { initial?: Whereabouts;
   const set = (k: keyof Whereabouts, v: string) => setForm((f) => ({ ...f, [k]: v }));
   const submit = () => {
     const d = new Date();
-    onSave({ ...form, updated: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}` });
+    onSave({ ...form, updated: toLocalIso(d) });
   };
   return (
     <Modal

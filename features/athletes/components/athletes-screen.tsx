@@ -5,10 +5,12 @@
 import { Icon } from "@/components/icon";
 import { useLane } from "@/components/lane-provider";
 import { Avatar, ConfirmModal, Drawer, EmptyState, Segmented, useToast } from "@/components/primitives";
-import { FilterDropdown, StatusBadge } from "@/components/shared";
+import { FilterDropdown, Stat, StatusBadge } from "@/components/shared";
 import { EVENT_CATEGORIES } from "@/lib/reference";
 import type { Athlete, Competition, RaceEntry } from "@/lib/types";
 import { downloadCsv, pickFiles, placementColor } from "@/utils";
+import { contractSuffix, GENDER_COLOR, nameColor } from "@/utils/athlete";
+import { fmtDob } from "@/utils/dates";
 import { useMemo, useState } from "react";
 import { localeOf } from "@/lib/i18n";
 import { printAthleteDossier } from "../athlete-print";
@@ -17,16 +19,6 @@ import { AthleteFormModal } from "./athlete-form-modal";
 type SortState = { key: string; dir: "asc" | "desc" };
 
 // Old-system convention: women pink, men blue; (E)/(M) = contract tag.
-const GENDER_COLOR: Record<string, string> = { F: "#f55b6e", M: "#5b6ef5", X: "var(--fg-1)" };
-const nameColor = (g: string) => GENDER_COLOR[g] || "var(--fg-1)";
-const contractSuffix = (c?: "E" | "M" | null) => (c ? ` (${c})` : "");
-
-// dd/mm/yyyy like the old Dema DB "Data di nascita" column.
-const fmtDob = (iso?: string) => {
-  if (!iso) return "—";
-  const [y, m, d] = iso.split("-");
-  return d && m && y ? `${d}/${m}/${y}` : iso;
-};
 const ordinal = (n: number) => {
   const s = ["th", "st", "nd", "rd"], v = n % 100;
   return n + (s[(v - 20) % 10] || s[v] || s[0]);
@@ -202,7 +194,7 @@ export function AthletesScreen() {
                     </td>
                     <td className="text-sm">{a.nationality}</td>
                     <td className="text-sm muted">{a.specialty}</td>
-                    <td className="text-sm mono" style={{ whiteSpace: "nowrap" }}>{fmtDob(a.dob)}</td>
+                    <td className="text-sm mono" style={{ whiteSpace: "nowrap" }}>{fmtDob(a.dob) || "—"}</td>
                     <td onClick={(e) => e.stopPropagation()}><StatusBadge status={a.status} /></td>
                   </tr>
                 ))}
@@ -274,21 +266,12 @@ function AthleteCard({ athlete, entries, onPeek, onHover }: { athlete: Athlete; 
           <div className="text-sm muted">{athlete.nationality} · {athlete.specialty}</div>
         </div>
         <div className="row" style={{ gap: 8, marginTop: 12, paddingTop: 12, borderTop: "1px solid var(--border-1)" }}>
-          <MiniStat label="PB" value={pb || "—"} mono />
-          <MiniStat label={t("as.competitions")} value={String(races)} />
-          <MiniStat label={t("as.medals")} value={`${athlete.medals.gold + athlete.medals.silver + athlete.medals.bronze}`} />
+          <Stat label="PB" value={pb || "—"} mono />
+          <Stat label={t("as.competitions")} value={String(races)} />
+          <Stat label={t("as.medals")} value={`${athlete.medals.gold + athlete.medals.silver + athlete.medals.bronze}`} />
         </div>
       </div>
     </button>
-  );
-}
-
-function MiniStat({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
-  return (
-    <div style={{ flex: 1, minWidth: 0 }}>
-      <div className={`fw-700${mono ? " mono" : ""}`} style={{ fontSize: 14, letterSpacing: "-0.01em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{value}</div>
-      <div className="muted" title={label} style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.02em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</div>
-    </div>
   );
 }
 
@@ -360,10 +343,10 @@ function AthletePeek({
           </div>
 
           <div className="row" style={{ gap: 8 }}>
-            <PeekStat label="PB" value={pb || "—"} mono />
-            <PeekStat label={t("as.competitions")} value={String(ordered.length)} />
-            <PeekStat label={t("as.podiums")} value={String(podium)} />
-            <PeekStat label={t("as.medals")} value={`${athlete.medals.gold + athlete.medals.silver + athlete.medals.bronze}`} />
+            <Stat variant="card" label="PB" value={pb || "—"} mono />
+            <Stat variant="card" label={t("as.competitions")} value={String(ordered.length)} />
+            <Stat variant="card" label={t("as.podiums")} value={String(podium)} />
+            <Stat variant="card" label={t("as.medals")} value={`${athlete.medals.gold + athlete.medals.silver + athlete.medals.bronze}`} />
           </div>
 
           <div>
@@ -394,7 +377,7 @@ function AthletePeek({
                             title={c ? t("prof.openCompetition") : undefined}
                             style={{ color, cursor: c ? "pointer" : undefined }}
                           >
-                            <td className="mono text-sm" style={{ whiteSpace: "nowrap", color }}>{fmtDob(c?.date)}</td>
+                            <td className="mono text-sm" style={{ whiteSpace: "nowrap", color }}>{fmtDob(c?.date) || "—"}</td>
                             <td className="fw-600" style={{ color }}>
                               <div className="row" style={{ gap: 6 }}>
                                 <span>{c?.name || e.competitionId}</span>
@@ -419,11 +402,3 @@ function AthletePeek({
   );
 }
 
-function PeekStat({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
-  return (
-    <div className="card card-pad" style={{ flex: 1, minWidth: 0, padding: "10px 12px", textAlign: "center" }}>
-      <div className={`display fw-700${mono ? " mono" : ""}`} style={{ fontSize: 16, letterSpacing: "-0.02em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{value}</div>
-      <div className="muted" title={label} style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.02em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</div>
-    </div>
-  );
-}

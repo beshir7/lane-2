@@ -2,8 +2,9 @@
 
 // Small components shared across multiple screens.
 
-import React, { useEffect, useRef, useState } from "react";
-import type { ReactNode } from "react";
+import React, { useRef, useState } from "react";
+import type { CSSProperties, ReactNode } from "react";
+import { useOutsideClick } from "@/hooks/use-outside-click";
 import { Icon } from "./icon";
 import { Badge } from "./primitives";
 import { useLane } from "./lane-provider";
@@ -91,13 +92,7 @@ export function FilterDropdown({
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const click = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", click);
-    return () => document.removeEventListener("mousedown", click);
-  }, []);
+  useOutsideClick(ref, () => setOpen(false), open);
   const current = options.find((o) => o.v === value);
   return (
     <div ref={ref} style={{ position: "relative" }}>
@@ -166,6 +161,73 @@ export function InfoRow({ icon, label, value }: { icon: string; label: string; v
   );
 }
 
+/**
+ * A label/value tile. Three shapes, one implementation:
+ *  - "inline" — bare column in a row of stats (athlete card)
+ *  - "card"   — the same, boxed and centred (peek drawer)
+ *  - "meta"   — boxed with the label above the value (competition peek header)
+ * Long labels ellipsize with the full text on hover, so a wide word like
+ * "COMPETIZIONI" can never overlap its neighbour.
+ */
+export function Stat({
+  label,
+  value,
+  mono,
+  variant = "inline",
+}: {
+  label: string;
+  value: ReactNode;
+  mono?: boolean;
+  variant?: "inline" | "card" | "meta";
+}) {
+  const clip: CSSProperties = { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" };
+  const labelEl = (
+    <div
+      className="muted"
+      title={label}
+      style={{
+        fontSize: variant === "meta" ? 11 : 10,
+        textTransform: "uppercase",
+        letterSpacing: variant === "meta" ? "0.04em" : "0.02em",
+        ...clip,
+      }}
+    >
+      {label}
+    </div>
+  );
+
+  if (variant === "meta") {
+    return (
+      <div className="card card-pad" style={{ padding: "8px 12px", minWidth: 90 }}>
+        {labelEl}
+        <div className={`fw-700${mono ? " mono" : ""}`} style={{ fontSize: 13, marginTop: 2 }}>{value}</div>
+      </div>
+    );
+  }
+
+  const valueEl = (
+    <div
+      className={`${variant === "card" ? "display " : ""}fw-700${mono ? " mono" : ""}`}
+      style={{ fontSize: variant === "card" ? 16 : 14, letterSpacing: variant === "card" ? "-0.02em" : "-0.01em", ...clip }}
+    >
+      {value}
+    </div>
+  );
+
+  return variant === "card" ? (
+    <div className="card card-pad" style={{ flex: 1, minWidth: 0, padding: "10px 12px", textAlign: "center" }}>
+      {valueEl}
+      {labelEl}
+    </div>
+  ) : (
+    <div style={{ flex: 1, minWidth: 0 }}>
+      {valueEl}
+      {labelEl}
+    </div>
+  );
+}
+
+/** Large coloured numeral over a caption — medal counts on the athlete header. */
 export function BigStat({ v, l, c }: { v: ReactNode; l: string; c: string }) {
   return (
     <div style={{ textAlign: "center" }}>

@@ -4,30 +4,10 @@
 // any browser) opens and prints.
 
 import { downloadWordDoc } from "@/utils";
+import { athleteListName } from "@/utils/athlete";
+import { fmtDob, todayIso } from "@/utils/dates";
+import { detailsHtml as details, esc, tableHtml as table } from "@/utils/print";
 import type { Athlete, Competition, Passport, RaceEntry, Visa } from "@/lib/types";
-
-const esc = (v: unknown) => String(v ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]!));
-
-const fmtDob = (iso?: string) => {
-  if (!iso) return "";
-  const [y, m, d] = iso.split("-");
-  return d && m && y ? `${d}/${m}/${y}` : iso;
-};
-
-function table(headers: string[], rows: (string | number)[][]) {
-  const head = `<tr>${headers.map((h) => `<th>${esc(h)}</th>`).join("")}</tr>`;
-  const body = rows.length
-    ? rows.map((r) => `<tr>${r.map((c) => `<td>${esc(c)}</td>`).join("")}</tr>`).join("")
-    : `<tr><td colspan="${headers.length}">—</td></tr>`;
-  return `<table>${head}${body}</table>`;
-}
-
-/** Label/value block — only rows with a value are printed. */
-function details(rows: [string, unknown][]) {
-  const filled = rows.filter(([, v]) => v !== undefined && v !== null && String(v).trim() !== "" && String(v) !== "—");
-  if (!filled.length) return "";
-  return `<table class="dl">${filled.map(([k, v]) => `<tr><td class="k">${esc(k)}</td><td>${esc(v)}</td></tr>`).join("")}</table>`;
-}
 
 export function printAthleteDossier({
   athlete,
@@ -49,15 +29,15 @@ export function printAthleteDossier({
   const compOf = (id: string) => competitions.find((c) => c.id === id);
   const dateOf = (e: RaceEntry) => compOf(e.competitionId)?.date || "";
   const today = new Date();
-  const todayIso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+  const cutoff = todayIso();
 
   const mine = entries.filter((e) => e.athleteId === athlete.id);
-  const upcoming = mine.filter((e) => dateOf(e) >= todayIso).sort((a, b) => dateOf(a).localeCompare(dateOf(b)));
-  const past = mine.filter((e) => dateOf(e) && dateOf(e) < todayIso).sort((a, b) => dateOf(b).localeCompare(dateOf(a)));
+  const upcoming = mine.filter((e) => dateOf(e) >= cutoff).sort((a, b) => dateOf(a).localeCompare(dateOf(b)));
+  const past = mine.filter((e) => dateOf(e) && dateOf(e) < cutoff).sort((a, b) => dateOf(b).localeCompare(dateOf(a)));
   const myPassports = passports.filter((p) => p.athleteId === athlete.id);
   const myVisas = visas.filter((v) => v.athleteId === athlete.id && !v.archived);
 
-  const name = `${athlete.last}, ${athlete.first}${athlete.contract ? ` (${athlete.contract})` : ""}`;
+  const name = athleteListName(athlete);
   const w = athlete.whereabouts;
 
   const parts: string[] = [];

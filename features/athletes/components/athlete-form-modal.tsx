@@ -11,6 +11,7 @@ import { Avatar, Modal } from "@/components/primitives";
 import { EVENT_CATEGORIES } from "@/lib/reference";
 import type { Athlete } from "@/lib/types";
 import { downloadWordDoc } from "@/utils";
+import { esc } from "@/utils/print";
 import { useState } from "react";
 import { DisciplinePicker } from "./discipline-picker";
 import { PassportManager, VisaManager } from "./travel-managers";
@@ -91,7 +92,6 @@ export function AthleteFormModal({
 
   // Stampa — generate a Word biography document (photo_34) and download it.
   const printBio = () => {
-    const esc = (s: any) => String(s ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]!));
     const fullName = `${form.first} ${form.last}`.trim();
     const age = form.dob ? new Date().getFullYear() - parseInt(form.dob.slice(0, 4)) : form.age;
     const rows = ([
