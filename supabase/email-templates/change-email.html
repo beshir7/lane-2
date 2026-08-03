@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="supported-color-schemes" content="light dark" />
+    <title>Confirm your new email address</title>
+    <style>
+      /* Clients that support media queries get a dark variant; everything else
+         falls back to the inline light styles below, which are self-sufficient. */
+      @media (prefers-color-scheme: dark) {
+        .bg { background: #0f1115 !important; }
+        .card { background: #171a21 !important; border-color: #262b36 !important; }
+        .title, .strong { color: #eef1f6 !important; }
+        .body-text { color: #aeb6c4 !important; }
+        .muted { color: #78808f !important; }
+        .divider { border-color: #262b36 !important; }
+        .fallback { background: #0f1115 !important; border-color: #262b36 !important; color: #8f97a6 !important; }
+      }
+      @media only screen and (max-width: 620px) {
+        .wrap { width: 100% !important; }
+        .pad { padding-left: 24px !important; padding-right: 24px !important; }
+      }
+    </style>
+  </head>
+  <body class="bg" style="margin:0;padding:0;background:#f2f4f7;-webkit-font-smoothing:antialiased;">
+    <!-- Preheader: the grey preview line in the inbox. Hidden in the message. -->
+    <div style="display:none;max-height:0;overflow:hidden;opacity:0;">
+      Confirm the change to your Lane 2 sign-in address.
+    </div>
+
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="bg" style="background:#f2f4f7;">
+      <tr>
+        <td align="center" style="padding:32px 12px;">
+          <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" class="wrap" style="width:600px;max-width:600px;">
+
+            <!-- Brand bar -->
+            <tr>
+              <td style="padding:0 0 20px 0;">
+                <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                  <tr>
+                    <td style="background:#6b7dff;border-radius:9px;width:34px;height:34px;text-align:center;vertical-align:middle;font-family:Georgia,'Times New Roman',serif;font-size:17px;font-weight:700;color:#ffffff;line-height:34px;">L</td>
+                    <td style="padding-left:11px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:16px;font-weight:700;letter-spacing:-0.2px;color:#11131a;" class="strong">
+                      Lane&#178; <span style="font-weight:400;color:#8a92a2;" class="muted">Athlete Management</span>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+
+            <!-- Card -->
+            <tr>
+              <td class="card" style="background:#ffffff;border:1px solid #e4e7ec;border-radius:14px;overflow:hidden;">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                  <tr>
+                    <td class="pad" style="padding:40px 40px 8px 40px;">
+                      <h1 class="title" style="margin:0 0 12px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:24px;line-height:1.25;font-weight:700;letter-spacing:-0.4px;color:#11131a;">
+                        Confirm your new address
+                      </h1>
+                      <p class="body-text" style="margin:0 0 28px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#4a5263;">
+                        A request was made to change the email address on your Lane&#178; account to <span class="strong" style="color:#11131a;font-weight:600;">{{ .NewEmail }}</span>. Confirm it below to make the change &mdash; you&rsquo;ll sign in with the new address from then on.
+                      </p>
+                    </td>
+                  </tr>
+
+                  <!-- Button -->
+                  <tr>
+                    <td class="pad" style="padding:0 40px 28px 40px;">
+                      <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                        <tr>
+                          <td style="background:#6b7dff;border-radius:9px;">
+                            <a href="{{ .ConfirmationURL }}"
+                               style="display:inline-block;padding:14px 30px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;font-weight:600;line-height:1;color:#ffffff;text-decoration:none;border-radius:9px;">
+                              Confirm new address
+                            </a>
+                          </td>
+                        </tr>
+                      </table>
+                    </td>
+                  </tr>
+
+                  <!-- Fallback URL: some clients strip or rewrite buttons. -->
+                  <tr>
+                    <td class="pad" style="padding:0 40px 32px 40px;">
+                      <p class="muted" style="margin:0 0 8px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:13px;line-height:1.5;color:#8a92a2;">
+                        Or paste this link into your browser:
+                      </p>
+                      <p class="fallback" style="margin:0;padding:12px 14px;background:#f7f8fa;border:1px solid #e4e7ec;border-radius:8px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;line-height:1.5;color:#5a6273;word-break:break-all;">
+                        {{ .ConfirmationURL }}
+                      </p>
+                    </td>
+                  </tr>
+
+                  <tr>
+                    <td class="pad" style="padding:0 40px 36px 40px;">
+                      <div class="divider" style="border-top:1px solid #e9ecf1;padding-top:20px;">
+                        <p class="muted" style="margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:13px;line-height:1.6;color:#8a92a2;">
+                          This link can be used once and expires in 24&nbsp;hours. If you didn&rsquo;t request this change, ignore this email and your address will stay as it is &mdash; then change your password, since someone may have access to your account.
+                        </p>
+                      </div>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+
+            <!-- Footer -->
+            <tr>
+              <td style="padding:22px 8px 0 8px;">
+                <p class="muted" style="margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:12px;line-height:1.6;color:#98a0ae;">
+                  Lane&#178; &middot; Athlete Management System<br />
+                  This is an automated message, please don&rsquo;t reply.
+                </p>
+              </td>
+            </tr>
+
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>
