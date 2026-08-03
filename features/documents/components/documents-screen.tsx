@@ -4,22 +4,16 @@
 
 import { Icon } from "@/components/icon";
 import { useLane } from "@/components/lane-provider";
+import { daysUntil } from "@/utils/dates";
 import { Avatar, Badge, Modal } from "@/components/primitives";
 import { FilterDropdown, InfoRow } from "@/components/shared";
 import { DOC_CATEGORIES } from "@/lib/reference";
 import type { Athlete, LaneDocument, Visa } from "@/lib/types";
 import { downloadCsv, downloadWordDoc, pickFiles } from "@/utils";
+import { esc } from "@/utils/print";
 import { useState } from "react";
 
 // Days until an ISO date, measured from local midnight; negative = past.
-function daysUntil(iso?: string | null): number | null {
-  if (!iso) return null;
-  const d = new Date(iso + "T00:00");
-  if (isNaN(d.getTime())) return null;
-  const start = new Date(); start.setHours(0, 0, 0, 0);
-  return Math.round((d.getTime() - start.getTime()) / 86400000);
-}
-
 // Which categories carry a meaningful date to filter on: passports & visas by
 // expiry, contracts by deadline. Medical records and media have none.
 const DATE_FILTER_CATEGORIES = ["passport", "visa", "contract"];
@@ -175,7 +169,6 @@ function VisaListPanel({ visas, athletes, search }: { visas: Visa[]; athletes: A
     .filter((r) => !search || r.name.toLowerCase().includes(search.toLowerCase()) || r.type.toLowerCase().includes(search.toLowerCase()))
     .sort((a, b) => a.name.localeCompare(b.name));
 
-  const esc = (s: string) => s.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]!));
   const printList = () => {
     const body = `<h1>${t("docs.visaList")}</h1><p class="sub">${rows.length} ${t("doccat.visa").toLowerCase()}</p><table><tr><th>${t("docs.athlete")}</th><th>${t("docs.type")}</th><th>${t("docs.validFrom")}</th><th>${t("docs.validTo")}</th></tr>${rows
       .map((r) => `<tr><td>${esc(r.name)}</td><td>${esc(r.type)}</td><td>${esc(r.from)}</td><td>${esc(r.to)}</td></tr>`)
@@ -249,7 +242,6 @@ function RaceVisaPanel({ search }: { search: string }) {
     .filter((r) => !search || r.name.toLowerCase().includes(search.toLowerCase()) || r.race.name.toLowerCase().includes(search.toLowerCase()))
     .sort((a, b) => (+new Date(a.race.date) - +new Date(b.race.date)) || a.name.localeCompare(b.name));
 
-  const esc = (s: string) => String(s ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]!));
   const printList = () => {
     const body = `<h1>${t("docs.raceVisaCheck")}</h1><table><tr><th>${t("docs.competition")}</th><th>${t("docs.validFrom")}</th><th>${t("docs.athlete")}</th><th>${t("docs.visa")}</th><th>${t("docs.validFrom")}</th><th>${t("docs.validTo")}</th><th>${t("docs.embassy")}</th><th>${t("common.status")}</th></tr>${rows
       .map((r) => `<tr><td>${esc(r.race.name)}</td><td>${esc(r.race.date)}</td><td>${esc(r.name)}</td><td>${esc(r.visa?.type || r.visa?.kind || "—")}</td><td>${esc(r.visa?.validFrom || "—")}</td><td>${esc(r.visa?.validTo || "—")}</td><td>${esc(r.visa?.embassy || "—")}</td><td>${esc(badge[r.status].label)}</td></tr>`)

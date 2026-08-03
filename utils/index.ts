@@ -1,38 +1,15 @@
 // Framework-agnostic helpers shared across the UI.
+//
+// Dates live in `utils/dates.ts`, printable-document builders in `utils/print.ts`
+// and athlete naming/colour in `utils/athlete.ts`.
 
 // ---- Formatting ---------------------------------------------------------
+/** 9.5 → "09:30". Calendar events store hours as decimals. */
 export const formatHour = (h: number) => {
   const hour = Math.floor(h);
   const min = Math.round((h - hour) * 60);
   return `${String(hour).padStart(2, "0")}:${String(min).padStart(2, "0")}`;
 };
-
-export const toISODate = (d: Date) => d.toISOString().slice(0, 10);
-
-export const shortDate = (iso: string) =>
-  new Date(iso + "T00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
-
-export const getWeekStart = (d: Date) => {
-  const out = new Date(d);
-  out.setDate(out.getDate() - out.getDay());
-  return out;
-};
-
-export const initialsOf = (name: string) =>
-  name.split(" ").map((s) => s[0]).filter(Boolean).slice(0, 2).join("").toUpperCase();
-
-// ---- Calendar category theming ------------------------------------------
-export const categoryColor = (cat: string) =>
-  cat === "competition" ? "var(--danger)" : cat === "training" ? "var(--success)" : cat === "travel" ? "var(--warning)" : "var(--accent)";
-
-export const categoryBg = (cat: string) =>
-  cat === "competition"
-    ? "rgba(245, 91, 110, 0.13)"
-    : cat === "training"
-    ? "rgba(34, 211, 160, 0.13)"
-    : cat === "travel"
-    ? "rgba(245, 177, 76, 0.13)"
-    : "rgba(107, 125, 255, 0.16)";
 
 // ---- Result placement theming -------------------------------------------
 // Finishing-place colours used across athlete results, the race results table
@@ -112,10 +89,6 @@ function triggerDownload(filename: string, blob: Blob) {
   URL.revokeObjectURL(url);
 }
 
-export function downloadJson(filename: string, data: unknown) {
-  triggerDownload(filename.endsWith(".json") ? filename : `${filename}.json`, new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }));
-}
-
 export function downloadCsv(filename: string, rows: Record<string, unknown>[]) {
   if (!rows.length) return;
   const cols = Object.keys(rows[0]);
@@ -146,15 +119,6 @@ export function downloadWordDoc(filename: string, htmlBody: string, title = "") 
     p.bio { line-height: 1.5; white-space: pre-wrap; }
   </style></head><body>${htmlBody}</body></html>`;
   triggerDownload(filename.endsWith(".doc") ? filename : `${filename}.doc`, new Blob([doc], { type: "application/msword" }));
-}
-
-export async function copyToClipboard(text: string): Promise<boolean> {
-  try {
-    await navigator.clipboard.writeText(text);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 /** Open a file picker and resolve with the chosen files. */

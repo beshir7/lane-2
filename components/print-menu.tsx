@@ -4,36 +4,13 @@
 // generates printable Word documents for many combined lists, independent of the
 // current page. Month-scoped lists honour the month picker at the top of the menu.
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
+import { useOutsideClick } from "@/hooks/use-outside-click";
 import { Icon } from "./icon";
 import { useLane } from "./lane-provider";
-import { downloadWordDoc } from "@/utils";
-
-const esc = (v: unknown) => String(v ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]!));
-
-function tableHtml(headers: string[], rows: (string | number)[][]) {
-  const head = `<tr>${headers.map((h) => `<th>${esc(h)}</th>`).join("")}</tr>`;
-  const body = rows.length
-    ? rows.map((r) => `<tr>${r.map((c) => `<td>${esc(c)}</td>`).join("")}</tr>`).join("")
-    : `<tr><td colspan="${headers.length}">—</td></tr>`;
-  return `<table>${head}${body}</table>`;
-}
-
-function tableDoc(filename: string, title: string, subtitle: string, headers: string[], rows: (string | number)[][]) {
-  downloadWordDoc(filename, `<h1>${esc(title)}</h1><p class="sub">${esc(subtitle)}</p>${tableHtml(headers, rows)}`, title);
-}
-
-// A document split into headed groups (photo_1: athlete list by country/discipline/sponsor).
-function groupedDoc(filename: string, title: string, headers: string[], groups: { heading: string; rows: (string | number)[][] }[]) {
-  const body = groups.map((g) => `<h2>${esc(g.heading)} (${g.rows.length})</h2>${tableHtml(headers, g.rows)}`).join("");
-  downloadWordDoc(filename, `<h1>${esc(title)}</h1>${body}`, title);
-}
-
-const fmtDob = (iso?: string) => {
-  if (!iso) return "";
-  const [y, m, d] = iso.split("-");
-  return d && m && y ? `${d}/${m}/${y}` : iso;
-};
+import { athleteListName } from "@/utils/athlete";
+import { fmtDob, todayIso } from "@/utils/dates";
+import { groupedDoc, tableDoc } from "@/utils/print";
 
 type LeafOpt = { key: string; labelKey: string; run: () => void };
 type Opt = LeafOpt | { key: string; labelKey: string; children: LeafOpt[] };
@@ -45,22 +22,17 @@ export function PrintMenu() {
   const [month, setMonth] = useState(""); // "YYYY-MM" — empty = all months
   const ref = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    if (!open) return;
-    const onClick = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
-    document.addEventListener("mousedown", onClick);
-    return () => document.removeEventListener("mousedown", onClick);
-  }, [open]);
+  useOutsideClick(ref, () => setOpen(false), open);
 
   const sections = useMemo(() => {
-    const nameOf = (id: string) => { const a = athletes.find((x) => x.id === id); return a ? `${a.last}, ${a.first}` : id; };
+    const nameOf = (id: string) => { const a = athletes.find((x) => x.id === id); return a ? athleteListName(a) : id; };
     const compOf = (id: string) => competitions.find((c) => c.id === id);
     const inMonth = (iso?: string) => !month || (iso || "").startsWith(month);
     const monthLabel = month || t("print.allMonths");
     const races = competitions.filter((c) => inMonth(c.date)).sort((a, b) => (a.date || "").localeCompare(b.date || ""));
 
     const raceRows = (list: typeof competitions) => list.map((c) => [c.date, c.name, c.country || "", c.level || c.type || "", c.category || "", String(c.entries ?? 0)]);
-    const athleteRow = (a: (typeof athletes)[number]) => [`${a.last}, ${a.first}${a.contract ? ` (${a.contract})` : ""}`, a.nationality || "", fmtDob(a.dob), a.specialty || ""];
+    const athleteRow = (a: (typeof athletes)[number]) => [athleteListName(a), a.nationality || "", fmtDob(a.dob), a.specialty || ""];
 
     const races_: Opt[] = [
       { key: "raceList", labelKey: "print.raceList", run: () => tableDoc("race-list", t("print.raceList"), monthLabel, ["Date", "Competition", "Nation", "Level", "Category", "Entries"], raceRows(races)) },
@@ -79,7 +51,7 @@ export function PrintMenu() {
       },
       {
         key: "athleteFutureRaces", labelKey: "print.athleteFutureRaces", run: () => {
-          const today = new Date().toISOString().slice(0, 10);
+          const today = todayIso();
           const future = competitions.filter((c) => (c.date || "") >= today).sort((a, b) => (a.date || "").localeCompare(b.date || ""));
           const futureIds = new Set(future.map((c) => c.id));
           const rows = entries.filter((e) => futureIds.has(e.competitionId)).map((e) => { const c = compOf(e.competitionId); return [c?.date || "", nameOf(e.athleteId), c?.name || e.competitionId, e.discipline]; })
@@ -92,7 +64,7 @@ export function PrintMenu() {
     const roster = [...athletes].sort((a, b) => a.last.localeCompare(b.last));
     // Group the roster under sorted headings (photo_1: by nation / discipline / sponsor).
     const GROUP_HEADERS = ["Athlete", "Nationality", "Date of birth", "Discipline", "Sponsor"];
-    const groupRows = (a: (typeof athletes)[number]) => [`${a.last}, ${a.first}${a.contract ? ` (${a.contract})` : ""}`, a.nationality || "", fmtDob(a.dob), a.specialty || "", a.sponsor || ""];
+    const groupRows = (a: (typeof athletes)[number]) => [athleteListName(a), a.nationality || "", fmtDob(a.dob), a.specialty || "", a.sponsor || ""];
     const buildGroups = (keyFn: (a: (typeof athletes)[number]) => string) => {
       const map = new Map<string, (typeof athletes)[number][]>();
       roster.forEach((a) => { const k = keyFn(a) || "—"; (map.get(k) || map.set(k, []).get(k)!).push(a); });
@@ -101,14 +73,14 @@ export function PrintMenu() {
 
     const athletes_: Opt[] = [
       { key: "roster", labelKey: "print.roster", run: () => tableDoc("athlete-roster", t("print.roster"), `${roster.length}`, ["Athlete", "Nationality", "Date of birth", "Discipline", "Coach"], roster.map((a) => [...athleteRow(a), a.coach || ""])) },
-      { key: "athletesWithSponsor", labelKey: "print.athletesWithSponsor", run: () => tableDoc("athletes-with-sponsor", t("print.athletesWithSponsor"), "", ["Athlete", "Sponsor", "Nationality"], roster.filter((a) => a.sponsor).map((a) => [`${a.last}, ${a.first}`, a.sponsor || "", a.nationality || ""])) },
-      { key: "marathoners", labelKey: "print.marathoners", run: () => tableDoc("marathoners", t("print.marathoners"), "", ["Athlete", "Nationality", "Discipline"], roster.filter((a) => /marathon/i.test(a.specialty) || (a.disciplines || []).some((d) => /marathon/i.test(d))).map((a) => [`${a.last}, ${a.first}`, a.nationality || "", a.specialty || ""])) },
+      { key: "athletesWithSponsor", labelKey: "print.athletesWithSponsor", run: () => tableDoc("athletes-with-sponsor", t("print.athletesWithSponsor"), "", ["Athlete", "Sponsor", "Nationality"], roster.filter((a) => a.sponsor).map((a) => [athleteListName(a), a.sponsor || "", a.nationality || ""])) },
+      { key: "marathoners", labelKey: "print.marathoners", run: () => tableDoc("marathoners", t("print.marathoners"), "", ["Athlete", "Nationality", "Discipline"], roster.filter((a) => /marathon/i.test(a.specialty) || (a.disciplines || []).some((d) => /marathon/i.test(d))).map((a) => [athleteListName(a), a.nationality || "", a.specialty || ""])) },
       // Personal bests (photo_2 concept): one row per PB mark an athlete holds.
       {
         key: "personalBests", labelKey: "print.personalBests", run: () => {
           const rows = roster.flatMap((a) => Object.entries(a.pb || {})
             .filter(([, mark]) => mark)
-            .map(([disc, mark]) => [`${a.last}, ${a.first}${a.contract ? ` (${a.contract})` : ""}`, a.nationality || "", disc, mark]));
+            .map(([disc, mark]) => [athleteListName(a), a.nationality || "", disc, mark]));
           tableDoc("personal-bests", t("print.personalBests"), `${rows.length}`, ["Athlete", "Nationality", "Discipline", "Personal best"], rows);
         },
       },
@@ -120,11 +92,11 @@ export function PrintMenu() {
             .filter((a) => a.gender === "M" && (marOf(a) || /marathon/i.test(a.specialty)))
             .map((a) => ({ a, mark: marOf(a) }))
             .sort((x, y) => (x.mark || "~").localeCompare(y.mark || "~"))
-            .map(({ a, mark }, i) => [String(i + 1), `${a.last}, ${a.first}${a.contract ? ` (${a.contract})` : ""}`, a.nationality || "", mark || "—"]);
+            .map(({ a, mark }, i) => [String(i + 1), athleteListName(a), a.nationality || "", mark || "—"]);
           tableDoc("men-marathon-runners", t("print.menMarathon"), `${rows.length}`, ["#", "Athlete", "Nationality", "Marathon PB"], rows);
         },
       },
-      { key: "track", labelKey: "print.track", run: () => tableDoc("track-athletes", t("print.track"), "", ["Athlete", "Nationality", "Discipline"], roster.filter((a) => !/marathon|road|cross/i.test(a.specialty)).map((a) => [`${a.last}, ${a.first}`, a.nationality || "", a.specialty || ""])) },
+      { key: "track", labelKey: "print.track", run: () => tableDoc("track-athletes", t("print.track"), "", ["Athlete", "Nationality", "Discipline"], roster.filter((a) => !/marathon|road|cross/i.test(a.specialty)).map((a) => [athleteListName(a), a.nationality || "", a.specialty || ""])) },
       {
         key: "athleteList", labelKey: "print.athleteList", children: [
           { key: "byCountry", labelKey: "print.byCountry", run: () => groupedDoc("athlete-list-by-country", `${t("print.athleteList")} — ${t("print.byCountry")}`, GROUP_HEADERS, buildGroups((a) => a.nationality)) },
@@ -135,7 +107,7 @@ export function PrintMenu() {
     ];
 
     const docs_: Opt[] = [
-      { key: "athleteContacts", labelKey: "print.athleteContacts", run: () => tableDoc("athlete-contacts", t("print.athleteContacts"), `${roster.length}`, ["Athlete", "Email", "Phone", "Residence"], roster.map((a) => [`${a.last}, ${a.first}`, a.contact?.email || "", a.contact?.phone || "", a.residence || ""])) },
+      { key: "athleteContacts", labelKey: "print.athleteContacts", run: () => tableDoc("athlete-contacts", t("print.athleteContacts"), `${roster.length}`, ["Athlete", "Email", "Phone", "Residence"], roster.map((a) => [athleteListName(a), a.contact?.email || "", a.contact?.phone || "", a.residence || ""])) },
       { key: "visaList", labelKey: "print.visaList", run: () => tableDoc("visa-list", t("print.visaList"), "", ["Athlete", "Type", "Valid from", "Valid to"], visas.filter((v) => !v.archived).map((v) => [nameOf(v.athleteId), v.type || v.kind, v.validFrom || "", v.validTo || ""]).sort((a, b) => a[0].localeCompare(b[0]))) },
       { key: "passportList", labelKey: "print.passportList", run: () => tableDoc("passport-list", t("print.passportList"), "", ["Athlete", "Number", "Nation", "Expiry"], passports.map((p) => [nameOf(p.athleteId), p.number || "", p.nation || "", p.expiry || ""]).sort((a, b) => a[0].localeCompare(b[0]))) },
     ];

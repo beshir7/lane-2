@@ -13,6 +13,7 @@
 
 import { translate, type Lang } from "@/lib/i18n";
 import { isBetterMark } from "@/utils";
+import { daysUntil, todayIso } from "@/utils/dates";
 import { createClient } from "@/lib/supabase/client";
 import { clearAllRows, deleteRow, fetchLaneData, logPageLoadBreakdown, perfEnabled, saveRow, updateRow } from "@/lib/supabase/lane-db";
 import type {
@@ -42,7 +43,7 @@ import { useToast } from "./primitives";
 
 const LANG_KEY = "lane-lang";
 const newId = (p: string) => p + Math.random().toString(36).slice(2, 8);
-const today = () => new Date().toISOString().slice(0, 10);
+const today = todayIso;
 
 // The signed-in account, shaped for display in the topbar / sidebar. Built from
 // the Supabase user + the profile fields stored in user_metadata at signup and
@@ -590,13 +591,6 @@ export function LaneProvider({ children }: { children: ReactNode }) {
   // Built from upcoming races and passport / visa / document expiries so the
   // bell always reflects true activity and deadlines — no seeded data.
   const notifications = useMemo<AppNotification[]>(() => {
-    const dayMs = 86400000;
-    const start = new Date(); start.setHours(0, 0, 0, 0);
-    const daysUntil = (iso?: string | null) => {
-      if (!iso) return null;
-      const d = new Date(iso + "T00:00");
-      return isNaN(d.getTime()) ? null : Math.round((d.getTime() - start.getTime()) / dayMs);
-    };
     const dayWord = (n: number) => (Math.abs(n) === 1 ? translate(lang, "time.day") : translate(lang, "time.days"));
     const nameOf = (id: string) => { const a = athletes.find((x) => x.id === id); return a ? `${a.first} ${a.last}` : ""; };
     const tr = (k: string) => translate(lang, k);
@@ -654,7 +648,7 @@ export function LaneProvider({ children }: { children: ReactNode }) {
   // Recent activity (dashboard) — derived from what actually happened: results
   // already recorded, and documents that have been uploaded. Newest first.
   const activity = useMemo<ActivityItem[]>(() => {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = todayIso();
     const items: ActivityItem[] = [];
 
     entries.forEach((e) => {

@@ -4,6 +4,7 @@
 
 import { Icon } from "@/components/icon";
 import { useLane } from "@/components/lane-provider";
+import { daysUntil } from "@/utils/dates";
 import { Avatar, Badge, EmptyState, KPI, Segmented } from "@/components/primitives";
 import { DateStack } from "@/components/shared";
 import { localeOf } from "@/lib/i18n";
@@ -11,12 +12,6 @@ import { downloadCsv } from "@/utils";
 import { useMemo, useState } from "react";
 
 const RANGE_DAYS: Record<string, number> = { d: 1, w: 7, m: 31, q: 92 };
-
-function daysUntil(iso: string): number | null {
-  if (!iso) return null;
-  const d = new Date(iso + "T00:00");
-  return isNaN(d.getTime()) ? null : Math.round((d.getTime() - Date.now()) / 86400000);
-}
 
 export function DashboardScreen() {
   const { athletes, competitions, events, entries, activity, passports, visas, navigate, t, lang } = useLane();

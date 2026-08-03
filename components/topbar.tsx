@@ -4,6 +4,7 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import { usePathname, useParams } from "next/navigation";
+import { useOutsideClick } from "@/hooks/use-outside-click";
 import { Icon } from "./icon";
 import { Avatar } from "./primitives";
 import { useLane } from "./lane-provider";
@@ -32,13 +33,12 @@ export function Topbar() {
   const notifRef = useRef<HTMLDivElement>(null);
 
   // Close the notifications panel on outside click / Escape.
+  useOutsideClick(notifRef, () => setNotifOpen(false), notifOpen);
   useEffect(() => {
     if (!notifOpen) return;
-    const onDown = (e: MouseEvent) => { if (notifRef.current && !notifRef.current.contains(e.target as Node)) setNotifOpen(false); };
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setNotifOpen(false); };
-    document.addEventListener("mousedown", onDown);
     document.addEventListener("keydown", onKey);
-    return () => { document.removeEventListener("mousedown", onDown); document.removeEventListener("keydown", onKey); };
+    return () => document.removeEventListener("keydown", onKey);
   }, [notifOpen]);
 
   const seg = pathname.split("/").filter(Boolean)[0] || "dashboard";

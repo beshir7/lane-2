@@ -9,29 +9,15 @@ import { EventTypeBadge, FilterDropdown, formatHour } from "@/components/shared"
 import { useLane } from "@/components/lane-provider";
 import { localeOf } from "@/lib/i18n";
 import { downloadCsv } from "@/utils";
+import { getWeekStart, toLocalIso as formatDate, todayIso } from "@/utils/dates";
 import type { Athlete, CalendarEvent, CalendarCategory } from "@/lib/types";
 
 type CalView = "month" | "week" | "day";
-
-// Local (not UTC) ISO date for "today", used to highlight the current day.
-const todayIso = () => {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-};
 
 // A calendar item is either a real editable event or a read-only item derived
 // from a race (competition). Race items carry the entered athletes and link to
 // the race detail instead of opening the event editor.
 type CalItem = CalendarEvent & { isRace?: boolean; raceId?: string };
-
-const getWeekStart = (d: Date) => {
-  const out = new Date(d);
-  out.setDate(out.getDate() - out.getDay());
-  return out;
-};
-// Local (not UTC) ISO date — using toISOString() here shifts the day in +offset
-// timezones, which mis-highlighted "today" and placed events on the wrong day.
-const formatDate = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
 // The calendar tracks two kinds of entry: competitions and meetings. Anything
 // else (rows created before that was settled) is shown as a meeting rather than

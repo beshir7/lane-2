@@ -8,17 +8,11 @@ import React, { useState } from "react";
 import { Icon } from "@/components/icon";
 import { Badge } from "@/components/primitives";
 import { useLane } from "@/components/lane-provider";
+import { daysUntil } from "@/utils/dates";
 import type { Passport, Visa } from "@/lib/types";
 import { PassportManager, VisaManager } from "./travel-managers";
 
 /** Days until a date; negative = past. */
-function daysUntil(iso: string): number | null {
-  if (!iso) return null;
-  const d = new Date(iso + "T00:00");
-  if (isNaN(d.getTime())) return null;
-  return Math.round((d.getTime() - Date.now()) / 86400000);
-}
-
 function ExpiryBadge({ date }: { date: string }) {
   const { t } = useLane();
   const d = daysUntil(date);
