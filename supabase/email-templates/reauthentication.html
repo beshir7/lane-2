@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="supported-color-schemes" content="light dark" />
+    <title>Your verification code</title>
+    <style>
+      @media (prefers-color-scheme: dark) {
+        .bg { background: #0f1115 !important; }
+        .card { background: #171a21 !important; border-color: #262b36 !important; }
+        .title, .strong { color: #eef1f6 !important; }
+        .body-text { color: #aeb6c4 !important; }
+        .muted { color: #78808f !important; }
+        .divider { border-color: #262b36 !important; }
+        .code-box { background: #0f1115 !important; border-color: #2f3646 !important; }
+        .code { color: #98a7ff !important; }
+      }
+      @media only screen and (max-width: 620px) {
+        .wrap { width: 100% !important; }
+        .pad { padding-left: 24px !important; padding-right: 24px !important; }
+        .code { font-size: 30px !important; letter-spacing: 8px !important; }
+      }
+    </style>
+  </head>
+  <body class="bg" style="margin:0;padding:0;background:#f2f4f7;-webkit-font-smoothing:antialiased;">
+    <div style="display:none;max-height:0;overflow:hidden;opacity:0;">
+      Your Lane 2 verification code. It expires in 1 hour.
+    </div>
+
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="bg" style="background:#f2f4f7;">
+      <tr>
+        <td align="center" style="padding:32px 12px;">
+          <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" class="wrap" style="width:600px;max-width:600px;">
+
+            <tr>
+              <td style="padding:0 0 20px 0;">
+                <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                  <tr>
+                    <td style="background:#6b7dff;border-radius:9px;width:34px;height:34px;text-align:center;vertical-align:middle;font-family:Georgia,'Times New Roman',serif;font-size:17px;font-weight:700;color:#ffffff;line-height:34px;">L</td>
+                    <td style="padding-left:11px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:16px;font-weight:700;letter-spacing:-0.2px;color:#11131a;" class="strong">
+                      Lane&#178; <span style="font-weight:400;color:#8a92a2;" class="muted">Athlete Management</span>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+
+            <tr>
+              <td class="card" style="background:#ffffff;border:1px solid #e4e7ec;border-radius:14px;overflow:hidden;">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                  <tr>
+                    <td class="pad" style="padding:40px 40px 8px 40px;">
+                      <h1 class="title" style="margin:0 0 12px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:24px;line-height:1.25;font-weight:700;letter-spacing:-0.4px;color:#11131a;">
+                        Your verification code
+                      </h1>
+                      <p class="body-text" style="margin:0 0 26px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#4a5263;">
+                        Enter this code in Lane&#178; to confirm it&rsquo;s you and finish changing your password.
+                      </p>
+                    </td>
+                  </tr>
+
+                  <!-- The code itself: the whole point of this email, so it gets
+                       the visual weight and stays selectable as plain text. -->
+                  <tr>
+                    <td class="pad" style="padding:0 40px 26px 40px;">
+                      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                        <tr>
+                          <td class="code-box" align="center" style="background:#f7f8fa;border:1px solid #e4e7ec;border-radius:12px;padding:26px 16px;">
+                            <div class="code" style="font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:36px;font-weight:700;letter-spacing:11px;line-height:1;color:#4c5ff0;">
+                              {{ .Token }}
+                            </div>
+                          </td>
+                        </tr>
+                      </table>
+                    </td>
+                  </tr>
+
+                  <tr>
+                    <td class="pad" style="padding:0 40px 36px 40px;">
+                      <div class="divider" style="border-top:1px solid #e9ecf1;padding-top:20px;">
+                        <p class="muted" style="margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:13px;line-height:1.6;color:#8a92a2;">
+                          This code expires in 1&nbsp;hour and can be used once. Lane&#178; will never ask you for it by phone or message &mdash; if you didn&rsquo;t request a password change, ignore this email and your password stays as it is.
+                        </p>
+                      </div>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+
+            <tr>
+              <td style="padding:22px 8px 0 8px;">
+                <p class="muted" style="margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:12px;line-height:1.6;color:#98a0ae;">
+                  Lane&#178; &middot; Athlete Management System<br />
+                  This is an automated message, please don&rsquo;t reply.
+                </p>
+              </td>
+            </tr>
+
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>

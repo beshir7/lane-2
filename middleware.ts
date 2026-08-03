@@ -2,7 +2,9 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
 // Public routes (no session required). Everything else needs a logged-in user.
-const PUBLIC = ["/signin", "/signup", "/forgot", "/reset"];
+// `/auth` covers the email-confirmation callback, which by definition arrives
+// without a session — it is the request that creates one.
+const PUBLIC = ["/signin", "/signup", "/forgot", "/reset", "/auth"];
 // Routes an already-logged-in user shouldn't sit on — bounce them to the app.
 const AUTH_ONLY = ["/signin", "/signup"];
 

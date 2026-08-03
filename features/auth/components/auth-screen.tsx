@@ -134,7 +134,13 @@ function SignupScreen({ onLogin, onSwitch }: { onLogin: () => void; onSwitch: (v
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      options: { data: { first_name: first.trim(), last_name: last.trim() } },
+      options: {
+        data: { first_name: first.trim(), last_name: last.trim() },
+        // Send the confirmation link back to the site the person signed up on.
+        // Without this Supabase falls back to the project's Site URL, so a
+        // signup on the deployed app would mail out a localhost link.
+        emailRedirectTo: `${window.location.origin}/auth/callback`,
+      },
     });
     setLoading(false);
     if (error) { setError(error.message); return; }
