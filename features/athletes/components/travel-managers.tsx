@@ -29,7 +29,8 @@ function PhotoField({ label, photo, onChange, onExtract }: { label: string; phot
   const { t } = useLane();
   const inputRef = React.useRef<HTMLInputElement>(null);
   const [scanning, setScanning] = useState(false);
-  const [status, setStatus] = useState<{ ok: boolean; message: string } | null>(null);
+  const [status, setStatus] = useState<{ ok: boolean; message: string; rawText?: string } | null>(null);
+  const [showRaw, setShowRaw] = useState(false);
 
   const pick = (file?: File) => {
     if (!file) return;
@@ -44,7 +45,8 @@ function PhotoField({ label, photo, onChange, onExtract }: { label: string; phot
     setStatus(null);
     const result = await scanTravelDoc(file);
     setScanning(false);
-    setStatus({ ok: result.ok, message: result.message });
+    setStatus({ ok: result.ok, message: result.message, rawText: result.rawText });
+    setShowRaw(false);
     if (result.ok) onExtract?.(result);
   };
 
@@ -83,6 +85,21 @@ function PhotoField({ label, photo, onChange, onExtract }: { label: string; phot
                 ? status.message
                 : "Upload a clear photo of the passport photo-page (or MRZ visa) to auto-fill."}
             </span>
+          )}
+          {/* When a read fails, show what the scanner actually saw — it makes the
+              difference between "bad photo" and "wrong part of the document"
+              obvious instead of leaving the user guessing. */}
+          {onExtract && status && !status.ok && status.rawText && (
+            <>
+              <button type="button" className="btn btn-ghost btn-sm" style={{ alignSelf: "flex-start" }} onClick={() => setShowRaw((v) => !v)}>
+                <Icon name={showRaw ? "chevronUp" : "chevronDown"} size={12} /> {showRaw ? "Hide" : "Show"} what was read
+              </button>
+              {showRaw && (
+                <pre className="mono text-xs" style={{ maxWidth: 260, maxHeight: 160, overflow: "auto", background: "var(--bg-2)", border: "1px solid var(--border-1)", borderRadius: 6, padding: 8, whiteSpace: "pre-wrap", wordBreak: "break-all", color: "var(--fg-3)" }}>
+                  {status.rawText.trim() || "(nothing)"}
+                </pre>
+              )}
+            </>
           )}
         </div>
         <input ref={inputRef} type="file" accept="image/*" style={{ display: "none" }} onChange={(e) => pick(e.target.files?.[0])} />
