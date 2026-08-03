@@ -244,7 +244,7 @@ export interface Competition {
 }
 
 /** Who from the agency follows a competition. */
-export const FOLLOWED_BY_OPTIONS = ["Hounda", "Rosella"] as const;
+export const FOLLOWED_BY_OPTIONS = ["Huda", "Rossella"] as const;
 export type FollowedBy = (typeof FOLLOWED_BY_OPTIONS)[number] | "";
 
 export interface Result {
