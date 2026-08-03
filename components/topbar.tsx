@@ -13,7 +13,7 @@ import { PrintMenu } from "./print-menu";
 const SEG_KEY: Record<string, string> = {
   dashboard: "nav.dashboard",
   athletes: "nav.athletes",
-  races: "nav.races",
+  competitions: "nav.competitions",
   organizers: "nav.organizers",
   calendar: "nav.calendar",
   documents: "nav.documents",
@@ -48,7 +48,7 @@ export function Topbar() {
     const a = athletes.find((x) => x.id === params.id);
     if (a) crumbs.push(`${a.first} ${a.last}`);
   }
-  if (seg === "races" && params?.id) {
+  if (seg === "competitions" && params?.id) {
     const c = competitions.find((x) => x.id === params.id);
     if (c) crumbs.push(c.short || c.name);
   }

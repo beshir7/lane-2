@@ -15,12 +15,18 @@ const nextConfig = {
   },
 
   experimental: {
-    // Client-side Router Cache: once a route (athlete/race detail, any page) has
-    // been visited or prefetched, reuse it for 5 minutes instead of re-fetching
-    // the server component payload. Makes back/forward and re-opening a profile
-    // instant — the biggest win for perceived speed in the deployed app.
+    // Client-side Router Cache: once a route (athlete/competition detail, any
+    // page) has been visited or prefetched, reuse it for 5 minutes instead of
+    // re-fetching the server component payload.
+    //
+    // This caches the ROUTE SHELL only, never the data: every screen reads its
+    // athletes/competitions/entries from LaneProvider, which holds them in
+    // client state and revalidates them itself (on tab focus, and when the
+    // connection returns). So a long stale time here cannot show stale records
+    // — it only saves the round-trip for markup the client would re-render
+    // identically anyway.
     staleTimes: {
-      dynamic: 300, // 5 min for dynamic routes (e.g. /athletes/[id], /races/[id])
+      dynamic: 300, // 5 min for dynamic routes (e.g. /athletes/[id], /competitions/[id])
       static: 300,  // 5 min for static routes
     },
   },

@@ -2,16 +2,17 @@
 
 // Athlete list screen.
 
-import React, { useMemo, useState } from "react";
 import { Icon } from "@/components/icon";
-import { Avatar, ConfirmModal, Drawer, EmptyState, Segmented } from "@/components/primitives";
-import { FilterDropdown, StatusBadge } from "@/components/shared";
-import { AthleteFormModal } from "./athlete-form-modal";
 import { useLane } from "@/components/lane-provider";
+import { Avatar, ConfirmModal, Drawer, EmptyState, Segmented, useToast } from "@/components/primitives";
+import { FilterDropdown, StatusBadge } from "@/components/shared";
 import { EVENT_CATEGORIES } from "@/lib/reference";
-import { downloadJson, downloadCsv, pickFiles, placementColor } from "@/utils";
-import { useToast } from "@/components/primitives";
-import type { Athlete, RaceEntry, Competition } from "@/lib/types";
+import type { Athlete, Competition, RaceEntry } from "@/lib/types";
+import { downloadCsv, pickFiles, placementColor } from "@/utils";
+import { useMemo, useState } from "react";
+import { localeOf } from "@/lib/i18n";
+import { printAthleteDossier } from "../athlete-print";
+import { AthleteFormModal } from "./athlete-form-modal";
 
 type SortState = { key: string; dir: "asc" | "desc" };
 
@@ -34,7 +35,7 @@ const ordinal = (n: number) => {
 const placeLabel = (pos?: number, note?: string) => (pos ? ordinal(pos) : note && /^(DNF|DNS|DQ)$/i.test(note) ? note.toUpperCase() : "—");
 
 export function AthletesScreen() {
-  const { athletes, entries, competitions, navigate, prefetch, createAthlete, deleteAthlete, t } = useLane();
+  const { athletes, entries, competitions, passports, visas, navigate, prefetch, createAthlete, deleteAthlete, t, lang } = useLane();
   const push = useToast();
   const [view, setView] = useState<"cards" | "list">("cards");
   const [peekId, setPeekId] = useState<string | null>(null);
@@ -137,7 +138,7 @@ export function AthletesScreen() {
             <Icon name="search" size={14} />
             <input className="input" placeholder={t("as.searchPlaceholder")} value={search} onChange={(e) => setSearch(e.target.value)} />
           </div>
-          <FilterDropdown label={t("filter.gender")} value={filterGender} options={[{ v: "all", l: t("gender.mf") }, { v: "F", l: t("gender.women") }, { v: "M", l: t("gender.men") }]} onChange={setFilterGender} />
+          <FilterDropdown label={t("filter.gender")} value={filterGender} options={[{ v: "all", l: t("gender.mf") }, { v: "M", l: t("gender.men") }, { v: "F", l: t("gender.women") }]} onChange={setFilterGender} />
           <FilterDropdown label={t("filter.discipline")} value={filterCat} options={[{ v: "all", l: t("common.all") }, ...Object.entries(EVENT_CATEGORIES).map(([k, v]) => ({ v: k, l: v.label }))]} onChange={setFilterCat} />
           <FilterDropdown label={t("common.status")} value={filterStatus} options={[{ v: "all", l: t("common.all") }, { v: "active", l: t("status.active") }, { v: "injury", l: t("status.injury") }, { v: "pregnant", l: t("status.pregnant") }, { v: "inactive", l: t("status.inactive") }]} onChange={setFilterStatus} />
           <FilterDropdown label={t("filter.squad")} value={filterSquad} options={[{ v: "all", l: t("common.all") }, ...squads.map((s) => ({ v: s, l: s }))]} onChange={setFilterSquad} />
@@ -226,6 +227,11 @@ export function AthletesScreen() {
         onClose={() => setPeekId(null)}
         onOpen={() => { if (peekId) navigate("athlete-detail", peekId); }}
         onDelete={() => { if (peekId) { deleteAthlete(peekId); setPeekId(null); } }}
+        onPrint={() => {
+          const a = athletes.find((x) => x.id === peekId);
+          if (a) printAthleteDossier({ athlete: a, entries, competitions, passports, visas, t, locale: localeOf(lang) });
+        }}
+        onOpenCompetition={(id) => { setPeekId(null); navigate("competition-detail", id); }}
         t={t}
       />
 
@@ -269,7 +275,7 @@ function AthleteCard({ athlete, entries, onPeek, onHover }: { athlete: Athlete; 
         </div>
         <div className="row" style={{ gap: 8, marginTop: 12, paddingTop: 12, borderTop: "1px solid var(--border-1)" }}>
           <MiniStat label="PB" value={pb || "—"} mono />
-          <MiniStat label={t("as.races")} value={String(races)} />
+          <MiniStat label={t("as.competitions")} value={String(races)} />
           <MiniStat label={t("as.medals")} value={`${athlete.medals.gold + athlete.medals.silver + athlete.medals.bronze}`} />
         </div>
       </div>
@@ -281,7 +287,7 @@ function MiniStat({ label, value, mono }: { label: string; value: string; mono?:
   return (
     <div style={{ flex: 1, minWidth: 0 }}>
       <div className={`fw-700${mono ? " mono" : ""}`} style={{ fontSize: 14, letterSpacing: "-0.01em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{value}</div>
-      <div className="text-xs muted" style={{ textTransform: "uppercase", letterSpacing: "0.04em" }}>{label}</div>
+      <div className="muted" title={label} style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.02em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</div>
     </div>
   );
 }
@@ -296,6 +302,8 @@ function AthletePeek({
   onClose,
   onOpen,
   onDelete,
+  onPrint,
+  onOpenCompetition,
   t,
 }: {
   athlete: Athlete | null;
@@ -304,6 +312,8 @@ function AthletePeek({
   onClose: () => void;
   onOpen: () => void;
   onDelete: () => void;
+  onPrint: () => void;
+  onOpenCompetition: (competitionId: string) => void;
   t: (k: string, vars?: Record<string, string | number>) => string;
 }) {
   const [confirm, setConfirm] = useState(false);
@@ -322,6 +332,7 @@ function AthletePeek({
       footer={
         <>
           <button className="btn btn-ghost" style={{ color: "var(--danger)", marginRight: "auto" }} onClick={() => setConfirm(true)}><Icon name="trash" size={13} /> {t("common.delete")}</button>
+          <button className="btn btn-secondary" title={t("prof.printDossier")} onClick={onPrint} disabled={!athlete}><Icon name="fileText" size={13} /> {t("common.print")}</button>
           <button className="btn btn-secondary" onClick={onClose}>{t("common.close")}</button>
           <button className="btn btn-primary" onClick={() => { onOpen(); onClose(); }}><Icon name="external" size={13} /> {t("athlete.openProfile")}</button>
         </>
@@ -350,7 +361,7 @@ function AthletePeek({
 
           <div className="row" style={{ gap: 8 }}>
             <PeekStat label="PB" value={pb || "—"} mono />
-            <PeekStat label={t("as.races")} value={String(ordered.length)} />
+            <PeekStat label={t("as.competitions")} value={String(ordered.length)} />
             <PeekStat label={t("as.podiums")} value={String(podium)} />
             <PeekStat label={t("as.medals")} value={`${athlete.medals.gold + athlete.medals.silver + athlete.medals.bronze}`} />
           </div>
@@ -377,9 +388,19 @@ function AthletePeek({
                         const c = comp(e.competitionId);
                         const color = e.position != null ? placementColor(e.position) : undefined;
                         return (
-                          <tr key={e.id} style={{ color }}>
+                          <tr
+                            key={e.id}
+                            onClick={() => c && onOpenCompetition(c.id)}
+                            title={c ? t("prof.openCompetition") : undefined}
+                            style={{ color, cursor: c ? "pointer" : undefined }}
+                          >
                             <td className="mono text-sm" style={{ whiteSpace: "nowrap", color }}>{fmtDob(c?.date)}</td>
-                            <td className="fw-600" style={{ color }}>{c?.name || e.competitionId}</td>
+                            <td className="fw-600" style={{ color }}>
+                              <div className="row" style={{ gap: 6 }}>
+                                <span>{c?.name || e.competitionId}</span>
+                                {c && <Icon name="chevronRight" size={12} style={{ color: "var(--fg-3)" }} />}
+                              </div>
+                            </td>
                             <td style={{ color }}>{e.discipline}</td>
                             <td className="fw-700 mono" style={{ color }}>{placeLabel(e.position, e.note)}</td>
                             <td className="mono" style={{ color }}>{e.time || "—"}</td>
@@ -402,7 +423,7 @@ function PeekStat({ label, value, mono }: { label: string; value: string; mono?:
   return (
     <div className="card card-pad" style={{ flex: 1, minWidth: 0, padding: "10px 12px", textAlign: "center" }}>
       <div className={`display fw-700${mono ? " mono" : ""}`} style={{ fontSize: 16, letterSpacing: "-0.02em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{value}</div>
-      <div className="text-xs muted" style={{ textTransform: "uppercase", letterSpacing: "0.04em" }}>{label}</div>
+      <div className="muted" title={label} style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.02em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</div>
     </div>
   );
 }

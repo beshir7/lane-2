@@ -27,6 +27,8 @@ create table if not exists public.athletes (
   disciplines    jsonb default '[]'::jsonb,
   joined         text default '',
   pb             jsonb default '{}'::jsonb,
+  pb_meta        jsonb default '{}'::jsonb,
+  whereabouts    jsonb,
   medals         jsonb default '{"gold":0,"silver":0,"bronze":0}'::jsonb,
   next_event     text default '',
   coach          text default '',
@@ -92,6 +94,7 @@ create table if not exists public.competitions (
   disciplines     jsonb default '[]'::jsonb,
   web_site        text,
   notes           text,
+  followed_by     text,
   created_at      timestamptz not null default now()
 );
 

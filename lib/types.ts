@@ -36,6 +36,29 @@ export interface Contact {
   phone: string;
 }
 
+/** Where a personal best was set, so the PB can link back to that competition. */
+export interface PbMeta {
+  competitionId?: string;
+  date?: string;
+  place?: number;
+  venue?: string;
+}
+
+/** Anti-doping whereabouts: where the athlete is and when they're available for
+ *  an out-of-competition test. */
+export interface Whereabouts {
+  address: string;
+  /** Daily availability window, e.g. "06:00" → "07:00". */
+  availableFrom: string;
+  availableTo: string;
+  /** Optional period this address applies to. */
+  fromDate?: string;
+  toDate?: string;
+  note?: string;
+  /** ISO date this record was last confirmed/updated. */
+  updated?: string;
+}
+
 export interface Athlete {
   id: string;
   first: string;
@@ -55,6 +78,8 @@ export interface Athlete {
   disciplines?: string[];
   joined: string;
   pb: Record<string, string>;
+  /** Per-discipline provenance for `pb` — which competition the mark came from. */
+  pbMeta?: Record<string, PbMeta>;
   medals: Medals;
   nextEvent: string;
   coach: string;
@@ -80,6 +105,8 @@ export interface Athlete {
   sponsor?: string;
   shoeSize?: string;
   clothingSize?: string;
+  /** Anti-doping whereabouts (address + availability window). */
+  whereabouts?: Whereabouts;
 }
 
 // =========================================================================
@@ -212,7 +239,13 @@ export interface Competition {
   disciplines?: MeetingDiscipline[];
   webSite?: string;
   notes?: string;
+  /** Agency staff member following this competition on the ground. */
+  followedBy?: FollowedBy;
 }
+
+/** Who from the agency follows a competition. */
+export const FOLLOWED_BY_OPTIONS = ["Hounda", "Rosella"] as const;
+export type FollowedBy = (typeof FOLLOWED_BY_OPTIONS)[number] | "";
 
 export interface Result {
   athleteId: string;
@@ -226,7 +259,10 @@ export interface Result {
 
 export type ResultsMap = Record<string, Result[]>;
 
-export type CalendarCategory = "training" | "competition" | "travel" | "meeting";
+// The calendar tracks competitions and meetings. "training"/"travel" are legacy
+// values kept so rows created before that decision still load; they are shown
+// and filtered as meetings.
+export type CalendarCategory = "competition" | "meeting" | "training" | "travel";
 
 export interface CalendarEvent {
   id: string;

@@ -12,8 +12,9 @@
 // =========================================================================
 
 import { translate, type Lang } from "@/lib/i18n";
+import { isBetterMark } from "@/utils";
 import { createClient } from "@/lib/supabase/client";
-import { clearAllRows, deleteRow, fetchLaneData, saveRow, updateRow } from "@/lib/supabase/lane-db";
+import { clearAllRows, deleteRow, fetchLaneData, perfEnabled, saveRow, updateRow } from "@/lib/supabase/lane-db";
 import type {
     ActivityItem,
     AppNotification,
@@ -61,6 +62,8 @@ function toCurrentUser(user: { email?: string | null; user_metadata?: Record<str
 
 interface LaneContextValue {
   loading: boolean;
+  /** Re-read every collection from the database. Throttled unless `force`. */
+  refresh: (force?: boolean) => Promise<void>;
 
   currentUser: CurrentUser | null;
   // Personal model: the signed-in account owner is always the admin.
@@ -183,13 +186,18 @@ export function LaneProvider({ children }: { children: ReactNode }) {
   const [documents, setDocuments] = useState<LaneDocument[]>([]);
   const [users, setUsers] = useState<TeamUser[]>([]);
   const [posts, setPosts] = useState<Post[]>([]);
-  const [activity, setActivity] = useState<ActivityItem[]>([]);
   const [audit, setAudit] = useState<AuditEntry[]>([]);
   const [sessions, setSessions] = useState<DeviceSession[]>([]);
   const [passports, setPassports] = useState<Passport[]>([]);
   const [visas, setVisas] = useState<Visa[]>([]);
   const [organizers, setOrganizers] = useState<Organizer[]>([]);
   const [entries, setEntries] = useState<RaceEntry[]>([]);
+  // Latest athletes/competitions, readable from callbacks without stale closures
+  // (used by the personal-best sync when a result is entered).
+  const athletesRef = useRef<Athlete[]>([]);
+  const competitionsRef = useRef<Competition[]>([]);
+  useEffect(() => { athletesRef.current = athletes; }, [athletes]);
+  useEffect(() => { competitionsRef.current = competitions; }, [competitions]);
 
   const [authenticated, setAuthenticated] = useState(true);
   const [cmdOpen, setCmdOpen] = useState(false);
@@ -235,33 +243,87 @@ export function LaneProvider({ children }: { children: ReactNode }) {
   }, [tweaks.theme, tweaks.accent]);
 
   // ----- Load the eight core collections from Supabase (per-user via RLS) -----
+  // When the collections were last read, so a revalidation can skip work that
+  // would only repeat a fetch we just did.
+  const loadedAtRef = useRef(0);
+
+  const applyData = useCallback((d: Awaited<ReturnType<typeof fetchLaneData>>) => {
+    setAthletes(d.athletes);
+    setCompetitions(d.competitions);
+    setOrganizers(d.organizers);
+    setEntries(d.entries);
+    setVisas(d.visas);
+    setPassports(d.passports);
+    setEvents(d.events);
+    setDocuments(d.documents);
+    loadedAtRef.current = Date.now();
+  }, []);
+
   useEffect(() => {
     let active = true;
     (async () => {
-      const { data: { user } } = await supabase.auth.getUser();
+      // The auth check and the table reads don't depend on each other — RLS
+      // scopes every row to the caller server-side — so they run together
+      // instead of one after the other. That removes a full round-trip from
+      // the time-to-first-paint on every cold load.
+      const perf = perfEnabled();
+      const t0 = perf ? performance.now() : 0;
+      const [userRes, data] = await Promise.all([
+        perf
+          ? supabase.auth.getUser().then((r: Awaited<ReturnType<typeof supabase.auth.getUser>>) => {
+              // eslint-disable-next-line no-console
+              console.info(`[lane-perf] ${"auth.getUser".padEnd(16)} ${(performance.now() - t0).toFixed(0).padStart(5)} ms`);
+              return r;
+            })
+          : supabase.auth.getUser(),
+        fetchLaneData(supabase).catch(() => null),
+      ]);
+      if (perf) {
+        // eslint-disable-next-line no-console
+        console.info(`[lane-perf] ${"TOTAL to data".padEnd(16)} ${(performance.now() - t0).toFixed(0).padStart(5)} ms  ·  page loaded at ${performance.now().toFixed(0)} ms`);
+      }
       if (!active) return;
+      const user = userRes.data.user;
       if (!user) { setLoading(false); return; } // middleware will redirect to /signin
       userIdRef.current = user.id;
       setCurrentUser(toCurrentUser(user));
-      try {
-        const d = await fetchLaneData(supabase);
-        if (!active) return;
-        setAthletes(d.athletes);
-        setCompetitions(d.competitions);
-        setOrganizers(d.organizers);
-        setEntries(d.entries);
-        setVisas(d.visas);
-        setPassports(d.passports);
-        setEvents(d.events);
-        setDocuments(d.documents);
-      } catch {
-        // leave collections empty; a toast on first write will report issues
-      } finally {
-        if (active) setLoading(false);
-      }
+      if (data) applyData(data);
+      setLoading(false);
     })();
     return () => { active = false; };
-  }, [supabase]);
+  }, [supabase, applyData]);
+
+  // ----- Revalidation -------------------------------------------------------
+  // The collections are a client-side cache of the database. Local writes keep
+  // it correct for this tab, but a change made elsewhere (another tab, another
+  // device, the Supabase dashboard) would otherwise never arrive. Re-read when
+  // the tab regains focus or the network comes back, throttled so hopping
+  // between windows doesn't hammer the API.
+  const REVALIDATE_AFTER_MS = 60_000;
+  const refreshingRef = useRef(false);
+  const refresh = useCallback(async (force = false) => {
+    if (!userIdRef.current || refreshingRef.current) return;
+    if (!force && Date.now() - loadedAtRef.current < REVALIDATE_AFTER_MS) return;
+    refreshingRef.current = true;
+    try {
+      applyData(await fetchLaneData(supabase));
+    } catch {
+      // keep whatever is on screen; the next focus will try again
+    } finally {
+      refreshingRef.current = false;
+    }
+  }, [supabase, applyData]);
+
+  useEffect(() => {
+    const onVisible = () => { if (document.visibilityState === "visible") void refresh(); };
+    const onOnline = () => { void refresh(true); };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("online", onOnline);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("online", onOnline);
+    };
+  }, [refresh]);
 
   // Keep the displayed account in sync with auth changes: a profile save
   // (USER_UPDATED), a fresh sign-in, or a sign-out all refresh it live.
@@ -278,8 +340,8 @@ export function LaneProvider({ children }: { children: ReactNode }) {
     const routes: Record<string, string> = {
       dashboard: "/dashboard",
       athletes: "/athletes",
-      competitions: "/races",
-      races: "/races",
+      competitions: "/competitions",
+      races: "/competitions",
       organizers: "/organizers",
       calendar: "/calendar",
       documents: "/documents",
@@ -289,7 +351,7 @@ export function LaneProvider({ children }: { children: ReactNode }) {
       role: "/role",
     };
     if (page === "athlete-detail") return `/athletes/${arg}`;
-    if (page === "competition-detail") return `/races/${arg}`;
+    if (page === "competition-detail") return `/competitions/${arg}`;
     if (page === "settings") return arg ? `/settings?tab=${arg}` : "/settings";
     return routes[page as string] || `/${page}`;
   }, []);
@@ -358,7 +420,7 @@ export function LaneProvider({ children }: { children: ReactNode }) {
 
   // ----- Events -----
   const createEvent = useCallback((data: Partial<CalendarEvent>) => {
-    const e = { athletes: [], category: "training", startHour: 9, duration: 1.5, location: "", ...data, id: data.id || newId("e") } as CalendarEvent;
+    const e = { athletes: [], category: "meeting", startHour: 9, duration: 1.5, location: "", ...data, id: data.id || newId("e") } as CalendarEvent;
     setEvents((prev) => [e, ...prev]);
     if (userIdRef.current) persist(saveRow(supabase, userIdRef.current, "event", e));
     push({ title: "Event scheduled", body: e.title, variant: "success" });
@@ -472,6 +534,31 @@ export function LaneProvider({ children }: { children: ReactNode }) {
     push({ title: "Organizer removed", variant: "info" });
   }, [push, persist, supabase]);
 
+  // ----- Personal bests -----
+  // A result that beats the athlete's stored PB for that discipline promotes it
+  // automatically, recording which competition it came from so the profile can
+  // link back to it.
+  const syncPb = useCallback((entry: Pick<RaceEntry, "athleteId" | "discipline" | "time" | "competitionId" | "position">) => {
+    if (!entry.time || !entry.discipline) return;
+    const athlete = athletesRef.current.find((a) => a.id === entry.athleteId);
+    if (!athlete) return;
+    if (!isBetterMark(entry.time, athlete.pb?.[entry.discipline])) return;
+    const comp = competitionsRef.current.find((c) => c.id === entry.competitionId);
+    const pb = { ...(athlete.pb || {}), [entry.discipline]: entry.time };
+    const pbMeta = {
+      ...(athlete.pbMeta || {}),
+      [entry.discipline]: {
+        competitionId: entry.competitionId,
+        date: comp?.date || "",
+        place: entry.position,
+        venue: comp?.location || "",
+      },
+    };
+    setAthletes((prev) => prev.map((a) => (a.id === athlete.id ? { ...a, pb, pbMeta } : a)));
+    persist(updateRow(supabase, "athlete", athlete.id, { pb, pbMeta }));
+    push({ title: "New personal best", body: `${athlete.first} ${athlete.last} · ${entry.discipline} ${entry.time}`, variant: "success" });
+  }, [push, persist, supabase]);
+
   // ----- Race entries (recount keeps competition counts in sync) -----
   const recount = useCallback((competitionId: string, list: RaceEntry[]) => {
     const forComp = list.filter((e) => e.competitionId === competitionId);
@@ -483,12 +570,15 @@ export function LaneProvider({ children }: { children: ReactNode }) {
     const entry = { discipline: "", gender: "M", status: "proposed", time: "", wind: "", note: "", ...data, id: data.id || newId("en") } as RaceEntry;
     setEntries((prev) => { const next = [entry, ...prev]; recount(entry.competitionId, next); return next; });
     if (userIdRef.current) persist(saveRow(supabase, userIdRef.current, "entry", entry));
+    syncPb(entry);
     push({ title: "Athlete entered", variant: "success" });
-  }, [push, persist, supabase, recount]);
+  }, [push, persist, supabase, recount, syncPb]);
   const updateEntry = useCallback((id: string, data: Partial<RaceEntry>) => {
-    setEntries((prev) => { const next = prev.map((x) => (x.id === id ? { ...x, ...data } : x)); const e = next.find((x) => x.id === id); if (e) recount(e.competitionId, next); return next; });
+    let merged: RaceEntry | undefined;
+    setEntries((prev) => { const next = prev.map((x) => (x.id === id ? { ...x, ...data } : x)); merged = next.find((x) => x.id === id); if (merged) recount(merged.competitionId, next); return next; });
     persist(updateRow(supabase, "entry", id, data));
-  }, [persist, supabase, recount]);
+    if (merged) syncPb(merged);
+  }, [persist, supabase, recount, syncPb]);
   const deleteEntry = useCallback((id: string) => {
     setEntries((prev) => { const gone = prev.find((x) => x.id === id); const next = prev.filter((x) => x.id !== id); if (gone) recount(gone.competitionId, next); return next; });
     persist(deleteRow(supabase, "entry", id));
@@ -560,6 +650,37 @@ export function LaneProvider({ children }: { children: ReactNode }) {
     return list.map((n) => ({ ...n, unread: !readNotifIds.has(n.id) }));
   }, [competitions, entries, passports, visas, documents, athletes, readNotifIds, lang]);
 
+  // Recent activity (dashboard) — derived from what actually happened: results
+  // already recorded, and documents that have been uploaded. Newest first.
+  const activity = useMemo<ActivityItem[]>(() => {
+    const today = new Date().toISOString().slice(0, 10);
+    const items: ActivityItem[] = [];
+
+    entries.forEach((e) => {
+      if (e.position == null) return;
+      const c = competitions.find((x) => x.id === e.competitionId);
+      const a = athletes.find((x) => x.id === e.athleteId);
+      if (!c || !a || !c.date || c.date > today) return;
+      items.push({
+        id: `act-res-${e.id}`, user: `${a.first} ${a.last}`, initials: a.initials, color: a.color,
+        action: translate(lang, "act.result", { p: e.position }),
+        target: c.name, time: c.date, icon: "trophy",
+      });
+    });
+
+    documents.forEach((d) => {
+      const a = d.athleteId ? athletes.find((x) => x.id === d.athleteId) : undefined;
+      items.push({
+        id: `act-doc-${d.id}`,
+        user: a ? `${a.first} ${a.last}` : translate(lang, "act.agency"),
+        initials: a?.initials || "LA", color: a?.color || "var(--accent)",
+        action: translate(lang, "act.uploaded"), target: d.name, time: d.uploaded || "", icon: "upload",
+      });
+    });
+
+    return items.sort((x, y) => (y.time || "").localeCompare(x.time || ""));
+  }, [entries, competitions, athletes, documents, lang]);
+
   const markAllRead = useCallback(() => {
     setReadNotifIds((prev) => {
       const next = new Set(prev);
@@ -572,7 +693,7 @@ export function LaneProvider({ children }: { children: ReactNode }) {
   // ----- Reset everything -----
   const resetAll = useCallback(() => {
     setAthletes([]); setCompetitions([]); setEvents([]); setResults({}); setReadNotifIds(new Set()); setDocuments([]);
-    setUsers([]); setPosts([]); setActivity([]); setAudit([]); setSessions([]); setPassports([]); setVisas([]); setOrganizers([]); setEntries([]);
+    setUsers([]); setPosts([]); setAudit([]); setSessions([]); setPassports([]); setVisas([]); setOrganizers([]); setEntries([]);
     if (userIdRef.current) persist(clearAllRows(supabase, userIdRef.current).then(() => ({ error: null })));
     push({ title: "All data cleared", variant: "info" });
   }, [push, persist, supabase]);
@@ -581,7 +702,7 @@ export function LaneProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<LaneContextValue>(
     () => ({
-      loading, currentUser, isAdmin: !!currentUser, athletes, competitions, events, results, notifications, documents, users, posts, activity, audit, sessions,
+      loading, refresh, currentUser, isAdmin: !!currentUser, athletes, competitions, events, results, notifications, documents, users, posts, activity, audit, sessions,
       passports, visas, organizers, entries, unreadCount,
       createAthlete, updateAthlete, deleteAthlete,
       createCompetition, updateCompetition, deleteCompetition, loadResults, addResult,
@@ -604,7 +725,7 @@ export function LaneProvider({ children }: { children: ReactNode }) {
       prefetch,
     }),
     [
-      loading, currentUser, athletes, competitions, events, results, notifications, documents, users, posts, activity, audit, sessions,
+      loading, refresh, currentUser, athletes, competitions, events, results, notifications, documents, users, posts, activity, audit, sessions,
       passports, visas, organizers, entries, unreadCount,
       createAthlete, updateAthlete, deleteAthlete, createCompetition, updateCompetition, deleteCompetition, loadResults, addResult,
       createEvent, updateEvent, deleteEvent, addDocuments, deleteDocument, inviteUser, removeUser, savePost, revokeSession,

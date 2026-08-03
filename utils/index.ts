@@ -54,6 +54,52 @@ export function placementColor(pos?: number | null): string {
   return PLACEMENT_COLORS.rest;
 }
 
+// ---- Marks & personal bests --------------------------------------------
+// A mark is either a running time ("2:05:12", "1:57.30", "13.85") where LOWER
+// is better, or a field-event distance ("8.05m") where HIGHER is better.
+
+/** True when the mark is a field-event distance (metres) rather than a time. */
+export function isDistanceMark(mark: string): boolean {
+  return /m\s*$/i.test((mark || "").trim());
+}
+
+/** Parse a mark to a comparable number: seconds for times, metres for field
+ *  events. Returns null when the string isn't a usable mark (DNF, "—", …). */
+export function parseMark(mark?: string | null): number | null {
+  const s = (mark || "").trim();
+  if (!s) return null;
+  if (isDistanceMark(s)) {
+    const v = parseFloat(s.replace(/[^\d.]/g, ""));
+    return isNaN(v) ? null : v;
+  }
+  // Times come in two notations: the colon form ("2:05:12", "1:57.30", "13.85")
+  // and the agency's road form ("2h05'12\"", "27'45\""). Normalise the second
+  // into the first before parsing so both compare correctly.
+  const norm = s
+    .replace(/[′’]/g, "'")
+    .replace(/[″”]/g, '"')
+    .replace(/\s+/g, "")
+    .replace(/h/gi, ":")
+    .replace(/'/g, ":")
+    .replace(/"/g, "");
+  // Times: [hh:]mm:ss[.hh] or ss[.hh]
+  if (!/^\d+(:\d{1,2}){0,2}(\.\d+)?$/.test(norm)) return null;
+  const parts = norm.split(":").map(Number);
+  if (parts.some(isNaN)) return null;
+  return parts.reduce((total, p) => total * 60 + p, 0);
+}
+
+/** Is `candidate` a better performance than `current` for this discipline?
+ *  Field events compare higher-is-better; times lower-is-better. An unset or
+ *  unparseable current mark is always beaten by a valid candidate. */
+export function isBetterMark(candidate: string, current?: string | null): boolean {
+  const c = parseMark(candidate);
+  if (c == null) return false;
+  const cur = parseMark(current);
+  if (cur == null) return true;
+  return isDistanceMark(candidate) ? c > cur : c < cur;
+}
+
 // ---- Browser actions (used to make toolbar buttons real) ----------------
 function triggerDownload(filename: string, blob: Blob) {
   const url = URL.createObjectURL(blob);

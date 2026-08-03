@@ -5,6 +5,7 @@
 
 import { LANGS } from "@/lib/i18n";
 import { usePathname } from "next/navigation";
+import { useEffect } from "react";
 import { Icon } from "./icon";
 import { useLane } from "./lane-provider";
 import { Avatar, BrandMark } from "./primitives";
@@ -38,9 +39,13 @@ function LanguageSwitch() {
   );
 }
 
+// Every destination in the sidebar. Warmed once when the browser is idle so the
+// first click on any of them is a cache hit rather than a round-trip.
+const NAV_IDS = ["dashboard", "athletes", "competitions", "organizers", "calendar", "documents", "settings", "role"];
+
 function pageFromPath(pathname: string): string {
   if (pathname.startsWith("/athletes")) return "athletes";
-  if (pathname.startsWith("/races")) return "competitions";
+  if (pathname.startsWith("/competitions")) return "competitions";
   if (pathname.startsWith("/organizers")) return "organizers";
   if (pathname.startsWith("/calendar")) return "calendar";
   if (pathname.startsWith("/documents")) return "documents";
@@ -53,12 +58,20 @@ function pageFromPath(pathname: string): string {
 }
 
 export function Sidebar() {
-  const { athletes, tweaks, setTweak, navigate, setCmdOpen, unreadCount, t, currentUser } = useLane();
+  const { athletes, tweaks, setTweak, navigate, prefetch, setCmdOpen, unreadCount, t, currentUser } = useLane();
   const pathname = usePathname();
   const currentPage = pageFromPath(pathname);
   const variant = tweaks.sidebar;
   const collapsed = variant === "rail";
   const toggleCollapsed = () => setTweak("sidebar", collapsed ? "expanded" : "rail");
+
+  useEffect(() => {
+    const warm = () => NAV_IDS.forEach((id) => prefetch(id));
+    const ric = (window as unknown as { requestIdleCallback?: (cb: () => void) => number }).requestIdleCallback;
+    if (ric) { ric(warm); return; }
+    const id = window.setTimeout(warm, 1200);
+    return () => window.clearTimeout(id);
+  }, [prefetch]);
 
   const navGroups = [
     {
@@ -66,7 +79,7 @@ export function Sidebar() {
       items: [
         { id: "dashboard", label: t("nav.dashboard"), icon: "dashboard" },
         { id: "athletes", label: t("nav.athletes"), icon: "athletes", badge: athletes?.length },
-        { id: "competitions", label: t("nav.races"), icon: "trophy" },
+        { id: "competitions", label: t("nav.competitions"), icon: "trophy" },
         { id: "organizers", label: t("nav.organizers"), icon: "users" },
         { id: "calendar", label: t("nav.calendar"), icon: "calendar" },
         { id: "documents", label: t("nav.documents"), icon: "document" },
@@ -109,6 +122,8 @@ export function Sidebar() {
                 className="nav-item"
                 aria-current={currentPage === item.id ? "page" : undefined}
                 onClick={() => navigate(item.id)}
+                onMouseEnter={() => prefetch(item.id)}
+                onFocus={() => prefetch(item.id)}
                 title={variant === "rail" ? item.label : undefined}
               >
                 <span className="nav-item-icon">

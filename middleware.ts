@@ -9,6 +9,22 @@ const AUTH_ONLY = ["/signin", "/signup"];
 export async function middleware(request: NextRequest) {
   let response = NextResponse.next({ request });
 
+  const path = request.nextUrl.pathname;
+  const publicPath = PUBLIC.some((p) => path === p || path.startsWith(p + "/"));
+
+  // Fast path: no Supabase auth cookie means there is no session to validate,
+  // so skip the round-trip to the auth server entirely. Protected pages bounce
+  // straight to sign-in; public pages render as-is. Every request used to pay
+  // for that call whether or not a session existed.
+  const hasSessionCookie = request.cookies.getAll().some((c) => /^sb-.*-auth-token/.test(c.name));
+  if (!hasSessionCookie) {
+    if (publicPath) return response;
+    const url = request.nextUrl.clone();
+    url.pathname = "/signin";
+    url.search = "";
+    return NextResponse.redirect(url);
+  }
+
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -28,11 +44,9 @@ export async function middleware(request: NextRequest) {
 
   // IMPORTANT: getUser() revalidates the token with Supabase — the source of truth.
   const { data: { user } } = await supabase.auth.getUser();
-  const path = request.nextUrl.pathname;
-  const isPublic = PUBLIC.some((p) => path === p || path.startsWith(p + "/"));
 
   // No session on a protected page → send to sign-in (blocks manual URL access).
-  if (!user && !isPublic) {
+  if (!user && !publicPath) {
     const url = request.nextUrl.clone();
     url.pathname = "/signin";
     url.search = "";
@@ -49,6 +63,9 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  // Run on everything except Next internals and static asset files.
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)"],
+  // Run on everything except Next internals and static asset files. `_next` is
+  // excluded wholesale (not just /static and /image) so build assets, data and
+  // RSC payload requests never pay for an auth round-trip — none of them are
+  // application routes.
+  matcher: ["/((?!_next/|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|txt|xml|webmanifest)$).*)"],
 };

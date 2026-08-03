@@ -141,7 +141,7 @@ export function PrintMenu() {
     ];
 
     return [
-      { titleKey: "print.section.races", items: races_ },
+      { titleKey: "print.section.competitions", items: races_ },
       { titleKey: "print.section.athletes", items: athletes_ },
       { titleKey: "print.section.docs", items: docs_ },
     ];
