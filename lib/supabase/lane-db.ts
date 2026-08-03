@@ -135,6 +135,33 @@ export function perfEnabled(): boolean {
   }
 }
 
+/** Where the time before the app booted actually went. The data layer is only
+ *  the last step of a page load; this reports the steps that precede it —
+ *  server response, script download, parse/hydrate — so a slow page can be
+ *  attributed to the right one instead of guessed at. */
+export function logPageLoadBreakdown() {
+  if (!perfEnabled() || typeof performance === "undefined") return;
+  const nav = performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming | undefined;
+  if (!nav) return;
+  const scripts = (performance.getEntriesByType("resource") as PerformanceResourceTiming[]).filter(
+    (r) => r.initiatorType === "script"
+  );
+  const scriptBytes = scripts.reduce((n, r) => n + (r.transferSize || 0), 0);
+  const scriptsDone = scripts.reduce((t, r) => Math.max(t, r.responseEnd), 0);
+  const row = (label: string, ms: number, note = "") =>
+    // eslint-disable-next-line no-console
+    console.info(`[lane-perf] ${label.padEnd(20)} ${ms.toFixed(0).padStart(5)} ms  ${note}`);
+
+  // eslint-disable-next-line no-console
+  console.info("[lane-perf] ---- page load breakdown ----");
+  row("TTFB (server)", nav.responseStart - nav.startTime, "document request — includes middleware auth");
+  row("HTML download", nav.responseEnd - nav.responseStart);
+  row("scripts fetched", scriptsDone - nav.responseEnd, `${scripts.length} files, ${(scriptBytes / 1024).toFixed(0)} kB transferred`);
+  row("parse + hydrate", nav.domContentLoadedEventEnd - scriptsDone);
+  row("DOM interactive", nav.domInteractive);
+  row("app boot → data", performance.now() - nav.domContentLoadedEventEnd, "provider work (see timings above)");
+}
+
 /** Time one query and report how long it took and how many rows came back. */
 async function timed<T>(label: string, run: () => PromiseLike<T>, on: boolean): Promise<T> {
   if (!on) return run();

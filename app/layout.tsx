@@ -15,9 +15,29 @@ export const metadata: Metadata = {
   description: "Run a world-class program from one workspace: athletes, competitions, calendars, documents and analytics.",
 };
 
+// Every API call the app makes goes to this one origin. Opening the connection
+// while the HTML is still parsing means the DNS lookup, TCP handshake and TLS
+// negotiation happen in parallel with the script download instead of being paid
+// for by the first query — worth a few hundred ms on a cold connection.
+const SUPABASE_ORIGIN = (() => {
+  try {
+    return new URL(process.env.NEXT_PUBLIC_SUPABASE_URL || "").origin;
+  } catch {
+    return "";
+  }
+})();
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" data-theme="dark" className={`${archivo.variable} ${inter.variable} ${jetbrains.variable}`}>
+      <head>
+        {SUPABASE_ORIGIN && (
+          <>
+            <link rel="preconnect" href={SUPABASE_ORIGIN} crossOrigin="anonymous" />
+            <link rel="dns-prefetch" href={SUPABASE_ORIGIN} />
+          </>
+        )}
+      </head>
       <body>
         <ToastProvider>
           <LaneProvider>{children}</LaneProvider>

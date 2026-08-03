@@ -14,7 +14,7 @@
 import { translate, type Lang } from "@/lib/i18n";
 import { isBetterMark } from "@/utils";
 import { createClient } from "@/lib/supabase/client";
-import { clearAllRows, deleteRow, fetchLaneData, perfEnabled, saveRow, updateRow } from "@/lib/supabase/lane-db";
+import { clearAllRows, deleteRow, fetchLaneData, logPageLoadBreakdown, perfEnabled, saveRow, updateRow } from "@/lib/supabase/lane-db";
 import type {
     ActivityItem,
     AppNotification,
@@ -281,6 +281,7 @@ export function LaneProvider({ children }: { children: ReactNode }) {
       if (perf) {
         // eslint-disable-next-line no-console
         console.info(`[lane-perf] ${"TOTAL to data".padEnd(16)} ${(performance.now() - t0).toFixed(0).padStart(5)} ms  ·  page loaded at ${performance.now().toFixed(0)} ms`);
+        logPageLoadBreakdown();
       }
       if (!active) return;
       const user = userRes.data.user;
