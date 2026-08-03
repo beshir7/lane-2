@@ -37,13 +37,13 @@ export function DateStack({ date }: { date: string }) {
 }
 
 export function EventTypeBadge({ category }: { category: CalendarCategory | string }) {
+  const { t } = useLane();
+  // The calendar tracks two kinds of entry: competitions and meetings.
   const map: Record<string, { v: any; l: string }> = {
-    competition: { v: "danger", l: "Competition" },
-    training: { v: "success", l: "Training" },
-    travel: { v: "warning", l: "Travel" },
-    meeting: { v: "accent", l: "Meeting" },
+    competition: { v: "danger", l: t("cal.catCompetition") },
+    meeting: { v: "accent", l: t("cal.catMeeting") },
   };
-  const it = map[category] || { v: "", l: category };
+  const it = map[category] || { v: "accent", l: t("cal.catMeeting") };
   return (
     <Badge variant={it.v} dot>
       {it.l}

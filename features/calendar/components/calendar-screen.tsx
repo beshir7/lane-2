@@ -33,10 +33,12 @@ const getWeekStart = (d: Date) => {
 // timezones, which mis-highlighted "today" and placed events on the wrong day.
 const formatDate = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
-const catColor = (cat: string) =>
-  cat === "competition" ? "var(--danger)" : cat === "training" ? "var(--success)" : cat === "travel" ? "var(--warning)" : "var(--accent)";
-const catBg = (cat: string) =>
-  cat === "competition" ? "rgba(245, 91, 110, 0.13)" : cat === "training" ? "rgba(34, 211, 160, 0.13)" : cat === "travel" ? "rgba(245, 177, 76, 0.13)" : "rgba(107, 125, 255, 0.16)";
+// The calendar tracks two kinds of entry: competitions and meetings. Anything
+// else (rows created before that was settled) is shown as a meeting rather than
+// being hidden.
+const normCat = (cat: string) => (cat === "competition" ? "competition" : "meeting");
+const catColor = (cat: string) => (normCat(cat) === "competition" ? "var(--danger)" : "var(--accent)");
+const catBg = (cat: string) => (normCat(cat) === "competition" ? "rgba(245, 91, 110, 0.13)" : "rgba(107, 125, 255, 0.16)");
 
 export function CalendarScreen() {
   const { events, athletes, competitions, entries, updateEvent, createEvent, deleteEvent, navigate, t, lang } = useLane();
@@ -44,7 +46,7 @@ export function CalendarScreen() {
   const [view, setView] = useState<CalView>("month");
   const isTimeView = view === "month" || view === "week" || view === "day";
   const [cursor, setCursor] = useState(() => new Date());
-  const [filterCat, setFilterCat] = useState<Set<string>>(new Set(["competition", "training", "travel", "meeting"]));
+  const [filterCat, setFilterCat] = useState<Set<string>>(new Set(["competition", "meeting"]));
   const [filterAthlete, setFilterAthlete] = useState("all");
   const [editEvent, setEditEvent] = useState<CalendarEvent | null>(null);
   const [newOnDate, setNewOnDate] = useState<any>(null);
@@ -73,16 +75,20 @@ export function CalendarScreen() {
   const filtered = useMemo<CalItem[]>(
     () =>
       [...events, ...raceEvents].filter((e) => {
-        if (!filterCat.has(e.category)) return false;
+        if (!filterCat.has(normCat(e.category))) return false;
         if (filterAthlete !== "all" && !e.athletes.includes(filterAthlete)) return false;
         return true;
       }),
     [events, raceEvents, filterCat, filterAthlete]
   );
 
-  // Races link to the race detail; real events open the editor.
+  // Anything that stands for a competition — the item derived from the
+  // competition itself, or an event linked to one — opens that competition's
+  // page. Everything else opens its own editor, which is its page.
+  const competitionIdOf = (ev: CalItem) => (ev.isRace ? ev.raceId : ev.competitionId) || null;
   const openItem = (ev: CalItem) => {
-    if (ev.isRace && ev.raceId) navigate("competition-detail", ev.raceId);
+    const cid = competitionIdOf(ev);
+    if (cid) navigate("competition-detail", cid);
     else setEditEvent(ev);
   };
 
@@ -140,8 +146,6 @@ export function CalendarScreen() {
 
               <div className="row" style={{ gap: 5 }}>
                 <CategoryFilter cat="competition" label={t("cal.comps")} color="var(--danger)" filterCat={filterCat} setFilterCat={setFilterCat} />
-                <CategoryFilter cat="training" label={t("cal.training")} color="var(--success)" filterCat={filterCat} setFilterCat={setFilterCat} />
-                <CategoryFilter cat="travel" label={t("cal.travel")} color="var(--warning)" filterCat={filterCat} setFilterCat={setFilterCat} />
                 <CategoryFilter cat="meeting" label={t("cal.meetings")} color="var(--accent)" filterCat={filterCat} setFilterCat={setFilterCat} />
               </div>
 
@@ -166,7 +170,7 @@ export function CalendarScreen() {
       <div className="card" style={{ padding: 16, overflow: "auto" }}>
         {view === "month" && <MonthView cursor={cursor} events={filtered} onMoveEvent={moveEvent} onClickDate={(d) => setNewOnDate(d)} onClickEvent={openItem} />}
         {view === "week" && <WeekView cursor={cursor} events={filtered} onMoveEvent={moveEvent} onClickEvent={openItem} onClickSlot={(d, h) => setNewOnDate({ date: d, startHour: h })} />}
-        {view === "day" && <DayView cursor={cursor} events={filtered} athletes={athletes} onClickEvent={openItem} onClickSlot={(d, h) => setNewOnDate({ date: d, startHour: h })} />}
+        {view === "day" && <DayView cursor={cursor} events={filtered} athletes={athletes} onClickEvent={openItem} onEditEvent={setEditEvent} onClickSlot={(d, h) => setNewOnDate({ date: d, startHour: h })} />}
       </div>
 
       {editEvent && (
@@ -340,8 +344,8 @@ function WeekView({ cursor, events, onMoveEvent, onClickEvent, onClickSlot }: { 
   );
 }
 
-function DayView({ cursor, events, athletes, onClickEvent, onClickSlot }: { cursor: Date; events: CalItem[]; athletes: Athlete[]; onClickEvent: (e: CalItem) => void; onClickSlot: (d: string, h: number) => void }) {
-  const { t, lang } = useLane();
+function DayView({ cursor, events, athletes, onClickEvent, onEditEvent, onClickSlot }: { cursor: Date; events: CalItem[]; athletes: Athlete[]; onClickEvent: (e: CalItem) => void; onEditEvent: (e: CalendarEvent) => void; onClickSlot: (d: string, h: number) => void }) {
+  const { t, lang, navigate } = useLane();
   const loc = localeOf(lang);
   const dStr = formatDate(cursor);
   const byId = new Map(athletes.map((a) => [a.id, a]));
@@ -399,11 +403,38 @@ function DayView({ cursor, events, athletes, onClickEvent, onClickSlot }: { curs
                       <div className="text-xs muted">{ev.isRace ? `${roster.length} ${roster.length === 1 ? t("cal.athleteWord") : t("cal.athletesWord")} ${t("cal.entered")}${ev.location ? ` · ${ev.location}` : ""}` : `${ev.duration}h · ${ev.location}`}</div>
                       {roster.length > 0 && (
                         <div className="row" style={{ gap: 4, marginTop: 6, flexWrap: "wrap" }}>
-                          {roster.slice(0, 6).map((a) => <Avatar key={a.id} name={`${a.first} ${a.last}`} color={a.color} size="xs" />)}
+                          {/* Each face opens that athlete's profile. */}
+                          {roster.slice(0, 6).map((a) => (
+                            <span
+                              key={a.id}
+                              role="button"
+                              tabIndex={0}
+                              title={`${a.first} ${a.last}`}
+                              style={{ cursor: "pointer", display: "inline-flex" }}
+                              onClick={(e) => { e.stopPropagation(); navigate("athlete-detail", a.id); }}
+                              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); navigate("athlete-detail", a.id); } }}
+                            >
+                              <Avatar name={`${a.first} ${a.last}`} color={a.color} size="xs" />
+                            </span>
+                          ))}
                           {roster.length > 6 && <span className="text-xs muted">+{roster.length - 6}</span>}
                         </div>
                       )}
                     </div>
+                    {/* An event tied to a competition opens that competition, so keep
+                        an explicit way to edit the calendar entry itself. */}
+                    {!ev.isRace && ev.competitionId && (
+                      <span
+                        role="button"
+                        tabIndex={0}
+                        className="icon-btn"
+                        title={t("cal.editEvent")}
+                        onClick={(e) => { e.stopPropagation(); onEditEvent(ev); }}
+                        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); onEditEvent(ev); } }}
+                      >
+                        <Icon name="edit" size={13} />
+                      </span>
+                    )}
                     <EventTypeBadge category={ev.category} />
                   </button>
                 );
@@ -439,7 +470,7 @@ function EventEditDrawer({
   const init: any =
     event || {
       title: "",
-      category: "training" as CalendarCategory,
+      category: "meeting" as CalendarCategory,
       date: typeof initialDate === "object" && initialDate?.date ? initialDate.date : initialDate ? formatDate(initialDate) : todayIso(),
       startHour: typeof initialDate === "object" && initialDate?.startHour ? initialDate.startHour : 9,
       duration: 1.5,
@@ -497,11 +528,9 @@ function EventEditDrawer({
         </div>
         <div className="field">
           <label className="field-label">{t("cal.category")}</label>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 6 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
             {[
-              { v: "training", l: t("cal.catTraining"), c: "var(--success)", i: "activity" },
               { v: "competition", l: t("cal.catCompetition"), c: "var(--danger)", i: "trophy" },
-              { v: "travel", l: t("cal.catTravel"), c: "var(--warning)", i: "globe" },
               { v: "meeting", l: t("cal.catMeeting"), c: "var(--accent)", i: "users" },
             ].map((opt) => (
               <button

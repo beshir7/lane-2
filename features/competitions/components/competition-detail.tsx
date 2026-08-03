@@ -9,6 +9,7 @@ import { Avatar, Badge, ConfirmModal, EmptyState, Modal, Tabs } from "@/componen
 import { BigStat, DateStack, EntryStatusBadge, InfoRow } from "@/components/shared";
 import type { Athlete, Competition, EntryStatus, MeetingDiscipline, RaceEntry } from "@/lib/types";
 import { ALL_DISCIPLINES } from "@/lib/reference";
+import { FOLLOWED_BY_OPTIONS } from "@/lib/types";
 import { downloadCsv, placementColor } from "@/utils";
 import { PlacementStats } from "@/components/placement-stats";
 import React, { useEffect, useState } from "react";
@@ -32,7 +33,7 @@ export function CompetitionDetail({ competitionId }: { competitionId: string }) 
   const [foglioAsk, setFoglioAsk] = useState(false);
   const [resultFor, setResultFor] = useState<RaceEntry | null>(null);
 
-  if (!competition) return <div className="page">{t("race.notFound")}</div>;
+  if (!competition) return <div className="page">{t("competition.notFound")}</div>;
 
   const compEntries = entries.filter((e) => e.competitionId === competition.id);
   const organizer = organizers.find((o) => o.id === competition.organizerId);
@@ -44,7 +45,7 @@ export function CompetitionDetail({ competitionId }: { competitionId: string }) 
   return (
     <div className="page">
       <button className="btn btn-ghost btn-sm" onClick={() => navigate("competitions")} style={{ marginBottom: 12 }}>
-        <Icon name="chevronLeft" size={13} /> {t("race.all")}
+        <Icon name="chevronLeft" size={13} /> {t("competition.all")}
       </button>
 
       <div className="card" style={{ overflow: "hidden", marginBottom: 16 }}>
@@ -67,10 +68,10 @@ export function CompetitionDetail({ competitionId }: { competitionId: string }) 
               <CompStat n={withResults.length} l={t("cd.results")} />
             </div>
             <div className="col" style={{ gap: 6 }}>
-              <button className="btn btn-primary" onClick={() => setShowAdd(true)}><Icon name="plus" size={13} /> {t("race.addAthletes")}</button>
-              <button className="btn btn-secondary btn-sm" onClick={() => setShowEdit(true)}><Icon name="edit" size={13} /> {t("races.edit")}</button>
-              <button className="btn btn-secondary btn-sm" onClick={() => setShowDisc(true)}><Icon name="layers" size={13} /> {t("race.disciplines")}</button>
-              <button className="btn btn-secondary btn-sm" onClick={() => setFoglioAsk(true)}><Icon name="fileText" size={13} /> {t("race.sheet")}</button>
+              <button className="btn btn-primary" onClick={() => setShowAdd(true)}><Icon name="plus" size={13} /> {t("competition.addAthletes")}</button>
+              <button className="btn btn-secondary btn-sm" onClick={() => setShowEdit(true)}><Icon name="edit" size={13} /> {t("competitions.edit")}</button>
+              <button className="btn btn-secondary btn-sm" onClick={() => setShowDisc(true)}><Icon name="layers" size={13} /> {t("competition.disciplines")}</button>
+              <button className="btn btn-secondary btn-sm" onClick={() => setFoglioAsk(true)}><Icon name="fileText" size={13} /> {t("competition.sheet")}</button>
             </div>
           </div>
         </div>
@@ -98,13 +99,13 @@ export function CompetitionDetail({ competitionId }: { competitionId: string }) 
       {resultFor && <ResultModal entry={resultFor} athletes={athletes} onClose={() => setResultFor(null)} />}
       {foglioAsk && (
         <ConfirmModal
-          title={t("race.sheet")}
-          message={t("race.foglioConfirm")}
+          title={t("competition.sheet")}
+          message={t("competition.foglioConfirm")}
           onCancel={() => setFoglioAsk(false)}
           choices={[
             { label: t("common.cancel"), variant: "ghost", onClick: () => setFoglioAsk(false) },
-            { label: t("race.foglioNoAthletes"), variant: "secondary", onClick: () => { setFoglio({ withAthletes: false }); setFoglioAsk(false); } },
-            { label: t("race.foglioWithAthletes"), variant: "primary", onClick: () => { setFoglio({ withAthletes: true }); setFoglioAsk(false); } },
+            { label: t("competition.foglioNoAthletes"), variant: "secondary", onClick: () => { setFoglio({ withAthletes: false }); setFoglioAsk(false); } },
+            { label: t("competition.foglioWithAthletes"), variant: "primary", onClick: () => { setFoglio({ withAthletes: true }); setFoglioAsk(false); } },
           ]}
         />
       )}
@@ -205,28 +206,117 @@ function CompOverviewTab({ c, organizer, disciplines, entryCount }: { c: Competi
             <InfoRow icon="users" label={t("cd.entries")} value={String(entryCount)} />
           </div>
         </div>
-        <div className="card card-pad">
-          <div className="card-title" style={{ marginBottom: 8 }}>{t("cd.raceOrganizer")}</div>
-          {organizer ? (
-            <>
-              <div className="row" style={{ gap: 10 }}>
-                <Avatar name={organizer.name} color="#5b6ef5" size="md" />
-                <div style={{ minWidth: 0 }}>
-                  <div className="fw-600">{organizer.name}</div>
-                  <div className="text-sm muted">{organizer.nation}</div>
-                </div>
-              </div>
-              <div className="col" style={{ gap: 8, marginTop: 12 }}>
-                <InfoRow icon="phone" label={t("cd.phone")} value={organizer.phone || "—"} />
-                <InfoRow icon="mail" label={t("cd.email")} value={organizer.email || "—"} />
-              </div>
-            </>
-          ) : (
-            <div className="text-sm muted">{t("cd.noOrganizer")}</div>
-          )}
-        </div>
+        <OrganizerCard c={c} organizer={organizer} />
       </div>
     </div>
+  );
+}
+
+// Organizer for this competition — changeable in place (pick a different one,
+// or create a new one), with "Followed by" shown directly underneath.
+function OrganizerCard({ c, organizer }: { c: Competition; organizer?: { name: string; phone: string; email: string; nation: string } }) {
+  const { t, organizers, updateCompetition, createOrganizer } = useLane();
+  const [picking, setPicking] = useState(false);
+  const [creating, setCreating] = useState(false);
+
+  const assign = (id: string) => { updateCompetition(c.id, { organizerId: id || null }); setPicking(false); };
+
+  return (
+    <div className="card card-pad">
+      <div className="row" style={{ marginBottom: 8 }}>
+        <div className="card-title">{t("cd.raceOrganizer")}</div>
+        <span className="spacer" />
+        <button className="btn btn-ghost btn-sm" onClick={() => setPicking((p) => !p)}>
+          <Icon name="edit" size={12} /> {organizer ? t("competitions.changeOrganizer") : t("competitions.addOrganizer")}
+        </button>
+      </div>
+
+      {organizer ? (
+        <>
+          <div className="row" style={{ gap: 10 }}>
+            <Avatar name={organizer.name} color="#5b6ef5" size="md" />
+            <div style={{ minWidth: 0 }}>
+              <div className="fw-600">{organizer.name}</div>
+              <div className="text-sm muted">{organizer.nation}</div>
+            </div>
+          </div>
+          <div className="col" style={{ gap: 8, marginTop: 12 }}>
+            <InfoRow icon="phone" label={t("cd.phone")} value={organizer.phone || "—"} />
+            <InfoRow icon="mail" label={t("cd.email")} value={organizer.email || "—"} />
+          </div>
+        </>
+      ) : (
+        <div className="text-sm muted">{t("cd.noOrganizer")}</div>
+      )}
+
+      {picking && (
+        <div className="col" style={{ gap: 8, marginTop: 12, paddingTop: 12, borderTop: "1px solid var(--border-1)" }}>
+          <select className="input" value={c.organizerId || ""} onChange={(e) => assign(e.target.value)}>
+            <option value="">— {t("cd.noOrganizer")} —</option>
+            {organizers.map((o) => <option key={o.id} value={o.id}>{o.name}{o.nation ? ` · ${o.nation}` : ""}</option>)}
+          </select>
+          <button className="btn btn-secondary btn-sm" onClick={() => setCreating(true)}>
+            <Icon name="plus" size={12} /> {t("org.new")}
+          </button>
+        </div>
+      )}
+
+      {/* Followed by — sits directly below the organizer. */}
+      <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid var(--border-1)" }}>
+        <div className="field" style={{ margin: 0 }}>
+          <label className="field-label">{t("competitions.followedBy")}</label>
+          <select
+            className="input"
+            value={c.followedBy || ""}
+            onChange={(e) => updateCompetition(c.id, { followedBy: e.target.value as Competition["followedBy"] })}
+          >
+            <option value="">— {t("competitions.followedByNone")} —</option>
+            {FOLLOWED_BY_OPTIONS.map((p) => <option key={p} value={p}>{p}</option>)}
+          </select>
+        </div>
+      </div>
+
+      {creating && (
+        <NewOrganizerModal
+          onClose={() => setCreating(false)}
+          onCreate={(data) => {
+            const id = "o" + Math.random().toString(36).slice(2, 6);
+            createOrganizer({ ...data, id });
+            updateCompetition(c.id, { organizerId: id });
+            setCreating(false);
+            setPicking(false);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function NewOrganizerModal({ onClose, onCreate }: { onClose: () => void; onCreate: (d: { name: string; nation: string; phone: string; email: string }) => void }) {
+  const { t } = useLane();
+  const [form, setForm] = useState({ name: "", nation: "", phone: "", email: "" });
+  const set = (k: keyof typeof form, v: string) => setForm((f) => ({ ...f, [k]: v }));
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={t("org.new")}
+      footer={
+        <>
+          <button className="btn btn-secondary" onClick={onClose}>{t("common.cancel")}</button>
+          <button className="btn btn-primary" disabled={!form.name.trim()} onClick={() => onCreate(form)}>{t("common.save")}</button>
+        </>
+      }
+    >
+      <div className="col" style={{ gap: 12 }}>
+        <div className="field"><label className="field-label">{t("org.name")}</label><input className="input" value={form.name} onChange={(e) => set("name", e.target.value)} autoFocus /></div>
+        <div className="field"><label className="field-label">{t("org.nation")}</label><input className="input" value={form.nation} onChange={(e) => set("nation", e.target.value)} /></div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          <div className="field"><label className="field-label">{t("org.phone")}</label><input className="input" value={form.phone} onChange={(e) => set("phone", e.target.value)} /></div>
+          <div className="field"><label className="field-label">{t("org.email")}</label><input className="input" type="email" value={form.email} onChange={(e) => set("email", e.target.value)} /></div>
+        </div>
+      </div>
+    </Modal>
   );
 }
 

@@ -251,7 +251,7 @@ function RaceVisaPanel({ search }: { search: string }) {
 
   const esc = (s: string) => String(s ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]!));
   const printList = () => {
-    const body = `<h1>${t("docs.raceVisaCheck")}</h1><table><tr><th>${t("docs.race")}</th><th>${t("docs.validFrom")}</th><th>${t("docs.athlete")}</th><th>${t("docs.visa")}</th><th>${t("docs.validFrom")}</th><th>${t("docs.validTo")}</th><th>${t("docs.embassy")}</th><th>${t("common.status")}</th></tr>${rows
+    const body = `<h1>${t("docs.raceVisaCheck")}</h1><table><tr><th>${t("docs.competition")}</th><th>${t("docs.validFrom")}</th><th>${t("docs.athlete")}</th><th>${t("docs.visa")}</th><th>${t("docs.validFrom")}</th><th>${t("docs.validTo")}</th><th>${t("docs.embassy")}</th><th>${t("common.status")}</th></tr>${rows
       .map((r) => `<tr><td>${esc(r.race.name)}</td><td>${esc(r.race.date)}</td><td>${esc(r.name)}</td><td>${esc(r.visa?.type || r.visa?.kind || "—")}</td><td>${esc(r.visa?.validFrom || "—")}</td><td>${esc(r.visa?.validTo || "—")}</td><td>${esc(r.visa?.embassy || "—")}</td><td>${esc(badge[r.status].label)}</td></tr>`)
       .join("")}</table>`;
     downloadWordDoc("race-visa-check", body, t("docs.raceVisaCheck"));
@@ -273,7 +273,7 @@ function RaceVisaPanel({ search }: { search: string }) {
         <div className="text-sm muted" style={{ padding: 18 }}>{t("docs.raceVisaEmpty")}</div>
       ) : (
         <table className="table">
-          <thead><tr><th>{t("docs.race")}</th><th>{t("docs.athlete")}</th><th>{t("docs.visa")}</th><th>{t("docs.validFrom")}</th><th>{t("docs.validTo")}</th><th>{t("docs.embassy")}</th><th style={{ width: 90 }}>{t("common.status")}</th></tr></thead>
+          <thead><tr><th>{t("docs.competition")}</th><th>{t("docs.athlete")}</th><th>{t("docs.visa")}</th><th>{t("docs.validFrom")}</th><th>{t("docs.validTo")}</th><th>{t("docs.embassy")}</th><th style={{ width: 90 }}>{t("common.status")}</th></tr></thead>
           <tbody>
             {rows.map((r) => (
               <tr key={`${r.race.id}-${r.athleteId}`}>

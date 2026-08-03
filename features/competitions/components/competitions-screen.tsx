@@ -4,13 +4,14 @@
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "@/components/icon";
-import { Avatar, Badge, ConfirmModal, Drawer, Modal, Segmented, Tabs } from "@/components/primitives";
-import { DateStack, EntryStatusBadge } from "@/components/shared";
+import { Avatar, Badge, ConfirmModal, Drawer, Modal, Segmented } from "@/components/primitives";
+import { DateStack, EntryStatusBadge, FilterDropdown } from "@/components/shared";
 import { PlacementStats } from "@/components/placement-stats";
 import { useLane } from "@/components/lane-provider";
+import { localeOf } from "@/lib/i18n";
 import { ALL_DISCIPLINES } from "@/lib/reference";
 import { placementColor, downloadWordDoc } from "@/utils";
-import { RACE_LEVELS } from "@/lib/types";
+import { RACE_LEVELS, FOLLOWED_BY_OPTIONS } from "@/lib/types";
 import type { Athlete, Competition, CompetitionStatus, EntryStatus, Organizer, RaceCategory, RaceEntry } from "@/lib/types";
 import { OrganizerPicker } from "@/features/organizers/components/organizer-picker";
 import { ResultModal } from "./competition-detail";
@@ -105,6 +106,120 @@ function inWhen(dateIso: string, when: WhenKey): boolean {
   return true;
 }
 
+// ---- Sophisticated search -----------------------------------------------
+// Everything a competition can be found by: its own fields (name, venue,
+// country, type, level/label, category, status, dates, notes, website), its
+// organizer and contact, who follows it, its disciplines/events, and the
+// athletes entered in it. Terms are separated by "+" and ALL must match, so
+// "Marathon + Half marathon" only returns competitions that have both.
+function buildHaystack(c: Competition, organizerName: string, athleteNames: string[], categoryLabel: string): string {
+  return [
+    c.name, c.short, c.location, c.country, c.type, c.level, c.category, categoryLabel,
+    c.status, c.date, c.endDate, c.followedBy, c.notes, c.webSite,
+    c.contactName, c.contactSurname, c.contactEmail, c.contactPhone,
+    organizerName,
+    ...(c.events || []),
+    ...(c.disciplines || []).map((d) => `${d.discipline} ${d.gender === "W" ? "women" : "men"}`),
+    ...athleteNames,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+}
+
+/** Split the query on "+" into the terms that must all be present. */
+export function parseSearchTerms(query: string): string[] {
+  return query.split("+").map((s) => s.trim().toLowerCase()).filter(Boolean);
+}
+
+// One control for "when": the preset ranges (All dates / Today / This week …)
+// and the exact-month picker live in the same dropdown, because they answer the
+// same question and only one of them can be active at a time. Picking a month
+// clears the preset and vice versa.
+function PeriodFilter({
+  when,
+  month,
+  onWhen,
+  onMonth,
+}: {
+  when: WhenKey;
+  month: string;
+  onWhen: (v: WhenKey) => void;
+  onMonth: (v: string) => void;
+}) {
+  const { t, lang } = useLane();
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const click = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener("mousedown", click);
+    return () => document.removeEventListener("mousedown", click);
+  }, []);
+
+  const monthLabel = month
+    ? new Date(month + "-01T00:00").toLocaleDateString(localeOf(lang), { month: "short", year: "numeric" })
+    : "";
+  const active = !!month || when !== "all";
+  const current = monthLabel || t("when." + when);
+
+  return (
+    <div ref={ref} style={{ position: "relative", flex: "0 0 auto" }}>
+      <button className="btn btn-secondary btn-sm" onClick={() => setOpen(!open)} title={t("rs.when")}>
+        <Icon name="calendar" size={13} style={{ color: active ? "var(--accent)" : "var(--fg-3)" }} />
+        <span style={{ color: active ? "var(--accent)" : undefined, maxWidth: 130, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{current}</span>
+        <Icon name="chevronDown" size={12} />
+      </button>
+      {open && (
+        <div
+          style={{
+            position: "absolute", top: "calc(100% + 4px)", left: 0, zIndex: 20,
+            width: "min(230px, calc(100vw - 24px))",
+            background: "var(--bg-1)", border: "1px solid var(--border-2)", borderRadius: "var(--r-md)",
+            boxShadow: "var(--shadow-lift)", padding: 4, display: "flex", flexDirection: "column", gap: 1,
+          }}
+        >
+          {WHEN_OPTIONS.map((o) => {
+            const on = !month && o.v === when;
+            return (
+              <button
+                key={o.v}
+                onClick={() => { onWhen(o.v); onMonth(""); setOpen(false); }}
+                style={{
+                  padding: "7px 10px", borderRadius: 4, textAlign: "left", fontSize: 13,
+                  background: on ? "var(--accent-soft)" : "transparent",
+                  color: on ? "var(--accent)" : "var(--fg-1)",
+                  display: "flex", alignItems: "center", justifyContent: "space-between",
+                }}
+              >
+                {t("when." + o.v)}
+                {on && <Icon name="check" size={12} />}
+              </button>
+            );
+          })}
+          <div style={{ height: 1, background: "var(--border-1)", margin: "4px 0" }} />
+          <div style={{ padding: "2px 10px 6px" }}>
+            <div className="text-xs muted" style={{ marginBottom: 4 }}>{t("competitions.month")}</div>
+            <div className="input-group" style={{ width: "100%" }}>
+              <input
+                className="input"
+                style={{ flex: 1, minWidth: 0, width: "auto" }}
+                type="month"
+                value={month}
+                onChange={(e) => { onMonth(e.target.value); if (e.target.value) onWhen("all"); }}
+              />
+              {month && (
+                <button className="icon-btn" title={t("common.clear")} onClick={() => onMonth("")}>
+                  <Icon name="close" size={13} />
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function RaceLegend() {
   const { t } = useLane();
   const items: RaceColor[] = ["past", "today", "upcoming", "nextyear"];
@@ -162,12 +277,12 @@ function CategorySearchFilter({
   };
 
   return (
-    <div ref={ref} style={{ position: "relative", minWidth: 240 }}>
+    <div ref={ref} style={{ position: "relative", flex: "1 1 160px", minWidth: 150, maxWidth: 220 }}>
       <div className="input-group">
         <Icon name="filter" size={14} />
         <input
           className="input"
-          placeholder={t("races.typeFilter")}
+          placeholder={t("competitions.typeFilter")}
           value={value}
           onFocus={() => setOpen(true)}
           onChange={(e) => { onChange(e.target.value); setOpen(true); }}
@@ -182,7 +297,7 @@ function CategorySearchFilter({
       {open && (
         <div
           style={{
-            position: "absolute", top: "calc(100% + 4px)", left: 0, minWidth: 240, zIndex: 20,
+            position: "absolute", top: "calc(100% + 4px)", left: 0, width: "max(100%, 220px)", zIndex: 20,
             background: "var(--bg-1)", border: "1px solid var(--border-2)", borderRadius: "var(--r-md)",
             boxShadow: "var(--shadow-lift)", padding: 4, display: "flex", flexDirection: "column", gap: 1,
           }}
@@ -246,6 +361,22 @@ export function CompetitionsScreen() {
   useEffect(() => { setPage(0); }, [filter, catQuery, monthFilter, search, when]);
 
   const catSet = parseCategoryQuery(catQuery);
+  // One searchable text blob per competition, rebuilt only when the underlying
+  // data changes rather than on every keystroke.
+  const haystacks = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const c of competitions) {
+      const organizerName = organizers.find((o) => o.id === c.organizerId)?.name || "";
+      const athleteNames = entries
+        .filter((e) => e.competitionId === c.id)
+        .map((e) => { const a = athletes.find((x) => x.id === e.athleteId); return a ? `${a.first} ${a.last}` : ""; });
+      const categoryLabel = RACE_CATEGORIES.find((x) => x.v === c.category)?.l || "";
+      map.set(c.id, buildHaystack(c, organizerName, athleteNames, categoryLabel));
+    }
+    return map;
+  }, [competitions, organizers, entries, athletes]);
+
+  const searchTerms = parseSearchTerms(search);
   // Row order (caption): today first, then upcoming, then future-year, then past.
   // Within a group races run soonest-first, except past ones show most-recent-first.
   const RACE_ORDER: Record<RaceColor, number> = { today: 0, upcoming: 1, nextyear: 2, past: 3 };
@@ -254,7 +385,8 @@ export function CompetitionsScreen() {
     .filter((c) => (catSet.length === 0 ? true : c.category ? catSet.includes(c.category) : false))
     .filter((c) => inWhen(c.date, when))
     .filter((c) => (!monthFilter ? true : (c.date || "").slice(0, 7) === monthFilter))
-    .filter((c) => !search || c.name.toLowerCase().includes(search.toLowerCase()) || c.location.toLowerCase().includes(search.toLowerCase()))
+    // Every "+"-separated term must appear somewhere in the competition.
+    .filter((c) => { const h = haystacks.get(c.id) || ""; return searchTerms.every((term) => h.includes(term)); })
     .sort((a, b) => {
       const ka = raceColorKey(a.date), kb = raceColorKey(b.date);
       if (RACE_ORDER[ka] !== RACE_ORDER[kb]) return RACE_ORDER[ka] - RACE_ORDER[kb];
@@ -285,50 +417,61 @@ export function CompetitionsScreen() {
     <div className="page">
       <div className="page-header">
         <div>
-          <h1 className="page-title">{t("races.title")}</h1>
-          <p className="page-subtitle">{t("races.subtitle")}</p>
+          <h1 className="page-title">{t("competitions.title")}</h1>
+          <p className="page-subtitle">{t("competitions.subtitle")}</p>
         </div>
         <div className="page-header-actions">
-          <button className="btn btn-primary" onClick={() => setShowCreate(true)}><Icon name="plus" size={14} /> {t("races.new")}</button>
+          <button className="btn btn-primary" onClick={() => setShowCreate(true)}><Icon name="plus" size={14} /> {t("competitions.new")}</button>
         </div>
       </div>
 
-      <Tabs
-        tabs={[
-          { value: "all", label: t("rs.all"), count: counts.all },
-          { value: "upcoming", label: t("rs.upcoming"), count: counts.upcoming },
-          { value: "live", label: t("rs.liveNow"), count: counts.live },
-          { value: "completed", label: t("rs.completed"), count: counts.completed },
-        ]}
-        value={filter}
-        onChange={setFilter}
-      />
-
       <div className="card" style={{ marginBottom: 12 }}>
         <div style={{ padding: 12, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-          <div className="input-group" style={{ flex: 1, minWidth: 200 }}>
+          <div className="input-group" style={{ flex: "2 1 200px", minWidth: 180 }}>
             <Icon name="search" size={14} />
-            <input className="input" placeholder={t("races.searchPlaceholder")} value={search} onChange={(e) => setSearch(e.target.value)} />
+            <input
+              className="input"
+              placeholder={t("competitions.searchAll")}
+              title={t("competitions.searchHint")}
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+            {search && (
+              <button className="icon-btn" title={t("common.clear")} onClick={() => setSearch("")}><Icon name="close" size={13} /></button>
+            )}
           </div>
+          {/* Status filter — a dropdown rather than a row of tabs. */}
+          <FilterDropdown
+            label={t("common.status")}
+            value={filter}
+            options={[
+              { v: "all", l: `${t("rs.all")} (${counts.all})` },
+              { v: "upcoming", l: `${t("rs.upcoming")} (${counts.upcoming})` },
+              { v: "live", l: `${t("rs.liveNow")} (${counts.live})` },
+              { v: "completed", l: `${t("rs.completed")} (${counts.completed})` },
+            ]}
+            onChange={(v) => setFilter(v as "all" | CompetitionStatus)}
+          />
           <CategorySearchFilter value={catQuery} onChange={setCatQuery} history={catHistory} onCommit={pushHistory} />
-          <div className="input-group" style={{ width: 170, flex: "0 0 auto" }} title={t("rs.when")}>
-            <Icon name="clock" size={14} />
-            <select className="input" style={{ flex: 1, minWidth: 0, width: "auto", border: "none", background: "transparent" }} value={when} onChange={(e) => setWhen(e.target.value as WhenKey)}>
-              {WHEN_OPTIONS.map((o) => <option key={o.v} value={o.v}>{t("when." + o.v)}</option>)}
-            </select>
-          </div>
-          <div className="input-group" style={{ width: 190, flex: "0 0 auto" }} title={t("races.month")}>
-            <Icon name="calendar" size={14} />
-            <input className="input" style={{ flex: 1, minWidth: 0, width: "auto", paddingRight: monthFilter ? 30 : 10 }} type="month" value={monthFilter} onChange={(e) => setMonthFilter(e.target.value)} />
-            {monthFilter && <button className="icon-btn" style={{ position: "absolute", right: 4, flex: "none" }} title={t("common.clear")} onClick={() => setMonthFilter("")}><Icon name="close" size={13} /></button>}
-          </div>
+          {/* Presets + exact month in one control. */}
+          <PeriodFilter when={when} month={monthFilter} onWhen={setWhen} onMonth={setMonthFilter} />
           <Segmented options={[{ value: "cards", icon: "grid", label: t("rs.grid") }, { value: "list", icon: "list", label: t("rs.list") }]} value={view} onChange={setView} />
         </div>
       </div>
 
       {view === "cards" ? (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 12 }}>
-          {filtered.map((c) => <CompetitionCard key={c.id} c={c} athletes={athletes} entries={entries} onPeek={() => setSelectedRaceId(c.id)} onHover={() => prefetch("competition-detail", c.id)} />)}
+          {filtered.map((c) => (
+            <CompetitionCard
+              key={c.id}
+              c={c}
+              athletes={athletes}
+              entries={entries}
+              organizerName={organizers.find((o) => o.id === c.organizerId)?.name}
+              onPeek={() => setSelectedRaceId(c.id)}
+              onHover={() => prefetch("competition-detail", c.id)}
+            />
+          ))}
           {filtered.length === 0 && <div className="card card-pad text-sm muted" style={{ gridColumn: "1 / -1" }}>{t("rs.noMatch")}</div>}
         </div>
       ) : (
@@ -418,8 +561,10 @@ function RacePeek({ race, entries, athletes, onEditResult, onEditEntry, onClose,
   onClose: () => void;
   onOpen: () => void;
 }) {
-  const { updateEntry, navigate, t } = useLane();
+  const { updateEntry, deleteEntry, navigate, t } = useLane();
   const [menu, setMenu] = useState<{ x: number; y: number; entry: RaceEntry } | null>(null);
+  const [adding, setAdding] = useState(false);
+  const [confirmRemove, setConfirmRemove] = useState<RaceEntry | null>(null);
   const nameOf = (id: string) => { const a = athletes.find((x) => x.id === id); return a ? `${a.last}, ${a.first}` : id; };
   const colorOf = (id: string) => athletes.find((x) => x.id === id)?.color || "#5b6ef5";
   const placeText = (e: RaceEntry) => (e.position ? `#${e.position}` : e.note && /^(DNF|DNS|DQ)$/i.test(e.note) ? e.note.toUpperCase() : "—");
@@ -454,11 +599,20 @@ function RacePeek({ race, entries, athletes, onEditResult, onEditEntry, onClose,
     >
       {race && (
       <div className="col" style={{ gap: 14 }}>
-        <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+        {/* Meta row — Add athlete sits alongside Date / Venue / Level / Entries
+            so an athlete can be entered without leaving this drawer. */}
+        <div className="row" style={{ gap: 8, flexWrap: "wrap", alignItems: "stretch" }}>
           <PeekMeta label={t("rs.date")} value={race.date || "—"} mono />
           <PeekMeta label={t("cd.venue")} value={[race.location, race.country].filter(Boolean).join(", ") || "—"} />
           {race.level && <PeekMeta label={t("cd.level")} value={race.level} />}
           <PeekMeta label={t("rs.entries")} value={String(entries.length)} />
+          <button
+            className="btn btn-primary"
+            onClick={() => setAdding(true)}
+            style={{ alignSelf: "stretch", marginLeft: "auto" }}
+          >
+            <Icon name="plus" size={13} /> {t("competitions.addAthlete")}
+          </button>
         </div>
       <div className="card" style={{ overflow: "hidden" }}>
       <div className="table-wrap" style={{ maxHeight: "calc(100vh - 360px)", overflowY: "auto" }}>
@@ -487,7 +641,14 @@ function RacePeek({ race, entries, athletes, onEditResult, onEditEntry, onClose,
                   <td className="fw-700 mono" style={{ color }}>{placeText(e)}</td>
                   <td className="mono" style={{ color }}>{e.time || "—"}</td>
                   <td onClick={(ev) => ev.stopPropagation()}>
-                    <button className="icon-btn" title={t("rs.editEntry")} onClick={() => onEditEntry(e)}><Icon name="edit" size={13} /></button>
+                    <button
+                      className="icon-btn"
+                      style={{ color: "var(--danger)" }}
+                      title={t("competitions.removeEntry")}
+                      onClick={() => setConfirmRemove(e)}
+                    >
+                      <Icon name="trash" size={13} />
+                    </button>
                   </td>
                 </tr>
               );
@@ -519,7 +680,92 @@ function RacePeek({ race, entries, athletes, onEditResult, onEditEntry, onClose,
           <button style={menuItem} onMouseEnter={hoverOn} onMouseLeave={hoverOff} onClick={() => { navigate("athlete-detail", menu.entry.athleteId); setMenu(null); }}><Icon name="external" size={13} /> Show athlete info</button>
         </div>
       )}
+
+      {/* Quick-add an athlete straight from the drawer. */}
+      {adding && race && (
+        <QuickAddAthleteModal
+          race={race}
+          athletes={athletes}
+          existingIds={entries.map((e) => e.athleteId)}
+          onClose={() => setAdding(false)}
+        />
+      )}
+
+      {confirmRemove && (
+        <ConfirmModal
+          title={t("competitions.removeEntry")}
+          message={`${nameOf(confirmRemove.athleteId)} — ${confirmRemove.discipline || ""}`}
+          onCancel={() => setConfirmRemove(null)}
+          choices={[
+            { label: t("common.cancel"), variant: "secondary", onClick: () => setConfirmRemove(null) },
+            { label: t("common.remove"), variant: "danger", onClick: () => { deleteEntry(confirmRemove.id); setConfirmRemove(null); } },
+          ]}
+        />
+      )}
     </Drawer>
+  );
+}
+
+// Enter an athlete into a competition without leaving the peek drawer.
+function QuickAddAthleteModal({ race, athletes, existingIds, onClose }: { race: Competition; athletes: Athlete[]; existingIds: string[]; onClose: () => void }) {
+  const { createEntry, t } = useLane();
+  // Disciplines this competition actually offers.
+  const options = race.disciplines?.length
+    ? race.disciplines.map((d) => d.discipline)
+    : race.events?.length
+    ? race.events
+    : [];
+  const [athleteId, setAthleteId] = useState("");
+  const [discipline, setDiscipline] = useState(options[0] || "");
+  const [error, setError] = useState("");
+  const available = athletes.filter((a) => !existingIds.includes(a.id));
+
+  const submit = () => {
+    if (!athleteId) { setError(t("cd.chooseAthlete")); return; }
+    const a = athletes.find((x) => x.id === athleteId);
+    createEntry({
+      competitionId: race.id,
+      athleteId,
+      discipline: discipline || a?.specialty || "",
+      gender: a?.gender === "F" ? "W" : "M",
+      status: "proposed",
+    });
+    onClose();
+  };
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={`${t("competitions.addAthlete")} — ${race.short || race.name}`}
+      footer={
+        <>
+          <button className="btn btn-secondary" onClick={onClose}>{t("common.cancel")}</button>
+          <button className="btn btn-primary" onClick={submit}>{t("cd.addEntry")}</button>
+        </>
+      }
+    >
+      <div className="col" style={{ gap: 14 }}>
+        <div className="field">
+          <label className="field-label">{t("cd.athlete")}</label>
+          <select className="input" value={athleteId} onChange={(e) => { setAthleteId(e.target.value); setError(""); }} autoFocus>
+            <option value="">{t("cd.selectAthlete")}</option>
+            {available.map((a) => <option key={a.id} value={a.id}>{a.first} {a.last} ({a.specialty})</option>)}
+          </select>
+          {error && <span className="field-error"><Icon name="alert" size={11} /> {error}</span>}
+        </div>
+        <div className="field">
+          <label className="field-label">{t("cd.discipline")}</label>
+          {options.length > 0 ? (
+            <select className="input" value={discipline} onChange={(e) => setDiscipline(e.target.value)}>
+              {options.map((d, i) => <option key={`${d}-${i}`} value={d}>{d}</option>)}
+            </select>
+          ) : (
+            <input className="input" value={discipline} onChange={(e) => setDiscipline(e.target.value)} placeholder={t("cd.discipline")} />
+          )}
+        </div>
+      </div>
+    </Modal>
   );
 }
 
@@ -548,10 +794,10 @@ function EntryEditModal({ entry, race, athletes, onClose }: { entry: RaceEntry; 
     onClose();
   };
   return (
-    <Modal open onClose={onClose} title={`${t("race.participants")} — ${race?.name || ""}`} footer={<><button className="btn btn-secondary" onClick={onClose}>{t("common.cancel")}</button><button className="btn btn-primary" onClick={save}>{t("common.save")}</button></>}>
+    <Modal open onClose={onClose} title={`${t("competition.participants")} — ${race?.name || ""}`} footer={<><button className="btn btn-secondary" onClick={onClose}>{t("common.cancel")}</button><button className="btn btn-primary" onClick={save}>{t("common.save")}</button></>}>
       <div className="col" style={{ gap: 14 }}>
         <div className="field">
-          <label className="field-label">{t("race.contactName")}</label>
+          <label className="field-label">{t("competition.contactName")}</label>
           <select className="input" value={athleteId} onChange={(e) => setAthleteId(e.target.value)}>
             {athletes.map((a) => <option key={a.id} value={a.id}>{a.last}, {a.first} ({a.specialty})</option>)}
           </select>
@@ -567,7 +813,7 @@ function EntryEditModal({ entry, race, athletes, onClose }: { entry: RaceEntry; 
   );
 }
 
-function CompetitionCard({ c, athletes, entries, onPeek, onHover }: { c: Competition; athletes: Athlete[]; entries: RaceEntry[]; onPeek: () => void; onHover?: () => void }) {
+function CompetitionCard({ c, athletes, entries, organizerName, onPeek, onHover }: { c: Competition; athletes: Athlete[]; entries: RaceEntry[]; organizerName?: string; onPeek: () => void; onHover?: () => void }) {
   const { t } = useLane();
   const [hover, setHover] = useState(false);
   // The athletes actually entered in this race (for the avatar stack + hover list).
@@ -606,6 +852,21 @@ function CompetitionCard({ c, athletes, entries, onPeek, onHover }: { c: Competi
           <div style={{ marginTop: 6, display: "flex", flexWrap: "wrap", gap: 4 }}>
             {c.events.length ? c.events.slice(0, 6).map((e) => <span key={e} className="tag">{e}</span>) : <span className="text-sm muted">—</span>}
             {c.events.length > 6 && <span className="tag">+{c.events.length - 6}</span>}
+          </div>
+        </div>
+        {/* Who runs it and who from the agency follows it. */}
+        <div className="col" style={{ gap: 4, borderTop: "1px solid var(--border-1)", paddingTop: 10 }}>
+          <div className="row text-xs" style={{ gap: 6 }}>
+            <Icon name="users" size={12} style={{ color: "var(--fg-3)", flexShrink: 0 }} />
+            <span className="muted">{t("competitions.organizer")}:</span>
+            <span className="fw-600" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {organizerName || <span className="muted fw-400">{t("competitions.noOrganizer")}</span>}
+            </span>
+          </div>
+          <div className="row text-xs" style={{ gap: 6 }}>
+            <Icon name="user" size={12} style={{ color: "var(--fg-3)", flexShrink: 0 }} />
+            <span className="muted">{t("competitions.followedBy")}:</span>
+            {c.followedBy ? <Badge variant="accent">{c.followedBy}</Badge> : <span className="muted">{t("competitions.followedByNone")}</span>}
           </div>
         </div>
         <div className="row" style={{ borderTop: "1px solid var(--border-1)", paddingTop: 12 }}>
@@ -655,7 +916,7 @@ export function CompetitionFormModal({ competition, onClose, onSave, organizers,
           name: "", short: "", location: "", country: "",
           date: "", endDate: "", type: "Diamond League", tier: "tier-1",
           events: [] as string[], status: "upcoming", entries: 0,
-          category: "meeting" as RaceCategory, level: "International", organizerId: "",
+          category: "meeting" as RaceCategory, level: "International", organizerId: "", followedBy: "",
           contactSurname: "", contactName: "", contactPhone: "", contactEmail: "",
           participants: [] as string[],
         }
@@ -664,7 +925,6 @@ export function CompetitionFormModal({ competition, onClose, onSave, organizers,
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [showOrgPicker, setShowOrgPicker] = useState(false);
   const [foglioAsk, setFoglioAsk] = useState(false);
-  const [discFilter, setDiscFilter] = useState<string>("all"); // participants panel filter
   const update = (k: string, v: any) => setForm((f: any) => ({ ...f, [k]: v }));
 
   const allEvents = ALL_DISCIPLINES;
@@ -690,14 +950,33 @@ export function CompetitionFormModal({ competition, onClose, onSave, organizers,
     setForm((f: any) => ({ ...f, participants: f.participants.includes(id) ? f.participants.filter((x: string) => x !== id) : [...f.participants, id] }));
   };
 
-  // Athletes shown on the right (photo_19): filtered by the disciplines the race
-  // offers. Clicking a discipline on the left narrows to athletes who run it.
+  // Athletes shown on the right (photo_19). Driven purely by the ticked
+  // disciplines: an athlete qualifies if they run ANY of them (OR), and athletes
+  // with no disciplines on file stay visible so they're still enterable.
+  //
+  // The order is a hierarchy: whoever covers the MOST of the ticked disciplines
+  // comes first — tick "Half Marathon" + "Marathon" and the athletes who run
+  // both head the list — then, among equals, the one whose best match sits
+  // earliest in ALL_DISCIPLINES (shortest → longest), then by surname.
   const hasDisc = (a: Athlete, ev: string) => (a.disciplines || []).includes(ev);
-  const eligible = athletes.filter((a) => {
-    if (form.events.length === 0) return false;
-    if (discFilter !== "all") return hasDisc(a, discFilter);
-    return form.events.some((ev: string) => hasDisc(a, ev)) || (a.disciplines || []).length === 0;
-  });
+  const eligible = useMemo<{ a: Athlete; matched: number; best: number }[]>(() => {
+    if (form.events.length === 0) return [];
+    // Ticked disciplines in hierarchy order.
+    const ranked = [...form.events].sort((a: string, b: string) => allEvents.indexOf(a) - allEvents.indexOf(b));
+    const scored = athletes
+      .map((a) => {
+        const matches = ranked.filter((ev: string) => hasDisc(a, ev));
+        return { a, matched: matches.length, best: matches.length ? ranked.indexOf(matches[0]) : Number.MAX_SAFE_INTEGER };
+      })
+      .filter(({ a, matched }) => matched > 0 || (a.disciplines || []).length === 0);
+    scored.sort(
+      (x, y) =>
+        y.matched - x.matched || // most disciplines covered first
+        x.best - y.best || // then the earliest discipline in the hierarchy
+        `${x.a.last} ${x.a.first}`.localeCompare(`${y.a.last} ${y.a.first}`)
+    );
+    return scored;
+  }, [athletes, form.events, allEvents]);
 
   const submit = () => {
     const e: Record<string, string> = {};
@@ -738,7 +1017,7 @@ export function CompetitionFormModal({ competition, onClose, onSave, organizers,
       for (const aid of form.participants as string[]) {
         const a = athletes.find((x) => x.id === aid);
         if (!a) continue;
-        const disc = form.events.find((ev: string) => hasDisc(a, ev)) || (discFilter !== "all" ? discFilter : form.events[0]) || "";
+        const disc = form.events.find((ev: string) => hasDisc(a, ev)) || form.events[0] || "";
         createEntry({ competitionId: id, athleteId: aid, discipline: disc, gender: a.gender === "F" ? "W" : "M", status: "proposed" });
       }
     }
@@ -772,18 +1051,18 @@ export function CompetitionFormModal({ competition, onClose, onSave, organizers,
       open={true}
       onClose={onClose}
       size="lg"
-      title={isEdit ? t("races.edit") : t("races.new")}
-      footer={<><button className="btn btn-secondary" onClick={() => setFoglioAsk(true)} style={{ marginRight: "auto" }}><Icon name="fileText" size={13} /> {t("race.sheet")}</button><button className="btn btn-secondary" onClick={onClose}>{t("common.cancel")}</button><button className="btn btn-primary" onClick={submit}>{isEdit ? t("races.save") : t("races.new")}</button></>}
+      title={isEdit ? t("competitions.edit") : t("competitions.new")}
+      footer={<><button className="btn btn-secondary" onClick={() => setFoglioAsk(true)} style={{ marginRight: "auto" }}><Icon name="fileText" size={13} /> {t("competition.sheet")}</button><button className="btn btn-secondary" onClick={onClose}>{t("common.cancel")}</button><button className="btn btn-primary" onClick={submit}>{isEdit ? t("competitions.save") : t("competitions.new")}</button></>}
     >
       <div className="col" style={{ gap: 14 }}>
         <div className="field">
-          <label className="field-label">{t("race.name")}</label>
+          <label className="field-label">{t("competition.name")}</label>
           <input className="input" placeholder="e.g. Lille Half Marathon" value={form.name} onChange={(e) => update("name", e.target.value)} aria-invalid={!!errors.name} />
           {errors.name && <span className="field-error"><Icon name="alert" size={11} /> {errors.name}</span>}
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
           <div className="field">
-            <label className="field-label">{t("race.venue")}</label>
+            <label className="field-label">{t("competition.venue")}</label>
             <input className="input" value={form.location} onChange={(e) => update("location", e.target.value)} aria-invalid={!!errors.location} />
             {errors.location && <span className="field-error"><Icon name="alert" size={11} /> {errors.location}</span>}
           </div>
@@ -805,21 +1084,30 @@ export function CompetitionFormModal({ competition, onClose, onSave, organizers,
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
           <div className="field">
-            <label className="field-label">{t("races.type")}</label>
+            <label className="field-label">{t("competitions.type")}</label>
             <select className="input" value={form.category} onChange={(e) => update("category", e.target.value)}>
               {RACE_CATEGORIES.map((c) => <option key={c.v} value={c.v}>{t(`cat.${c.v}`)}</option>)}
             </select>
           </div>
           <div className="field">
-            <label className="field-label">{t("race.level")}</label>
+            <label className="field-label">{t("competition.level")}</label>
             <select className="input" value={form.level} onChange={(e) => update("level", e.target.value)}>
               {RACE_LEVELS.map((l) => <option key={l} value={l}>{l}</option>)}
             </select>
           </div>
         </div>
 
+        {/* Which agency staff member follows this competition on the ground. */}
         <div className="field">
-          <label className="field-label">{t("race.organizer")}</label>
+          <label className="field-label">{t("competitions.followedBy")}</label>
+          <select className="input" value={form.followedBy || ""} onChange={(e) => update("followedBy", e.target.value)}>
+            <option value="">— {t("competitions.followedByNone")} —</option>
+            {FOLLOWED_BY_OPTIONS.map((p) => <option key={p} value={p}>{p}</option>)}
+          </select>
+        </div>
+
+        <div className="field">
+          <label className="field-label">{t("competition.organizer")}</label>
           <div className="row" style={{ gap: 8 }}>
             <select className="input" style={{ flex: 1 }} value={form.organizerId} onChange={(e) => pickOrganizer(e.target.value)}>
               <option value="">— {t("common.none")} —</option>
@@ -831,42 +1119,50 @@ export function CompetitionFormModal({ competition, onClose, onSave, organizers,
 
         {/* Organizer contact typed on the race form (caption 22). */}
         <div className="field">
-          <label className="field-label">{t("race.contact")}</label>
+          <label className="field-label">{t("competition.contact")}</label>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-            <input className="input" placeholder={t("race.contactSurname")} value={form.contactSurname} onChange={(e) => update("contactSurname", e.target.value)} />
-            <input className="input" placeholder={t("race.contactName")} value={form.contactName} onChange={(e) => update("contactName", e.target.value)} />
+            <input className="input" placeholder={t("competition.contactSurname")} value={form.contactSurname} onChange={(e) => update("contactSurname", e.target.value)} />
+            <input className="input" placeholder={t("competition.contactName")} value={form.contactName} onChange={(e) => update("contactName", e.target.value)} />
             <input className="input" placeholder={t("org.phone")} value={form.contactPhone} onChange={(e) => update("contactPhone", e.target.value)} />
             <input className="input" type="email" placeholder={t("org.email")} value={form.contactEmail} onChange={(e) => update("contactEmail", e.target.value)} />
           </div>
         </div>
 
         {/* Disciplines (left) & participants (right), side by side — photo_19.
-            Tick disciplines the race offers on the left; click one to filter the
-            eligible athletes on the right by who runs it. */}
+            Ticking a discipline is the only action: the athlete list on the
+            right immediately shows everyone who runs ANY ticked discipline
+            (OR), ordered by the discipline hierarchy (shortest → longest). */}
         <div className="field">
-          <label className="field-label">{t("race.disciplines")}{!isEdit ? ` & ${t("race.participants")}` : ""}</label>
+          <label className="field-label">{t("competition.disciplines")}{!isEdit ? ` & ${t("competition.participants")}` : ""}</label>
           <div style={{ display: "grid", gridTemplateColumns: isEdit ? "1fr" : "1fr 1fr", gap: 10 }}>
             {/* LEFT — disciplines */}
             <div className="card" style={{ overflow: "hidden" }}>
               <div className="card-header" style={{ padding: "8px 12px" }}>
-                <div className="card-title text-sm">{t("race.disciplines")}</div>
-                {form.events.length > 0 && <span className="text-xs muted">{form.events.length}</span>}
+                <div className="card-title text-sm">{t("competition.disciplines")}</div>
+                <div className="row" style={{ gap: 8 }}>
+                  {form.events.length > 0 && <span className="text-xs muted">{form.events.length}</span>}
+                  {form.events.length > 0 && (
+                    <button className="btn btn-ghost btn-sm" onClick={() => update("events", [])}>{t("common.clear")}</button>
+                  )}
+                </div>
               </div>
               <div style={{ padding: 6, maxHeight: 260, overflowY: "auto", display: "flex", flexDirection: "column", gap: 1 }}>
                 {allEvents.map((ev) => {
                   const inRace = form.events.includes(ev);
-                  const active = discFilter === ev;
                   return (
-                    <div key={ev} className="row" style={{ gap: 8, padding: "4px 8px", borderRadius: 6, background: active ? "var(--accent-soft)" : "transparent" }}>
+                    <label
+                      key={ev}
+                      className="row"
+                      style={{ gap: 8, padding: "5px 8px", borderRadius: 6, cursor: "pointer", background: inRace ? "var(--accent-soft)" : "transparent" }}
+                    >
                       <input type="checkbox" checked={inRace} onChange={() => toggleEvent(ev)} />
-                      <button
-                        onClick={() => setDiscFilter(active ? "all" : ev)}
+                      <span
                         className="text-sm"
-                        style={{ flex: 1, textAlign: "left", background: "transparent", color: inRace ? (active ? "var(--accent)" : "var(--fg-1)") : "var(--fg-3)", fontWeight: inRace ? 600 : 400 }}
+                        style={{ flex: 1, color: inRace ? "var(--accent)" : "var(--fg-2)", fontWeight: inRace ? 600 : 400 }}
                       >
                         {ev}
-                      </button>
-                    </div>
+                      </span>
+                    </label>
                   );
                 })}
               </div>
@@ -876,20 +1172,34 @@ export function CompetitionFormModal({ competition, onClose, onSave, organizers,
             {!isEdit && (
             <div className="card" style={{ overflow: "hidden" }}>
               <div className="card-header" style={{ padding: "8px 12px" }}>
-                <div className="card-title text-sm">{t("race.participants")}{discFilter !== "all" ? ` · ${discFilter}` : ""}</div>
-                {discFilter !== "all" && <button className="btn btn-ghost btn-sm" onClick={() => setDiscFilter("all")}>{t("common.all")}</button>}
+                <div className="card-title text-sm">{t("competition.participants")}</div>
+                {eligible.length > 0 && <span className="text-xs muted">{eligible.length}</span>}
               </div>
               <div style={{ padding: 6, maxHeight: 260, overflowY: "auto" }}>
                 {form.events.length === 0 ? (
-                  <div className="text-sm muted" style={{ padding: 8 }}>{t("race.pickDisciplines")}</div>
+                  <div className="text-sm muted" style={{ padding: 8 }}>{t("competition.pickDisciplines")}</div>
                 ) : eligible.length === 0 ? (
-                  <div className="text-sm muted" style={{ padding: 8 }}>{t("race.noEligible")}</div>
+                  <div className="text-sm muted" style={{ padding: 8 }}>{t("competition.noEligible")}</div>
                 ) : (
-                  eligible.map((a) => (
+                  eligible.map(({ a, matched }) => (
                     <label key={a.id} className="row" style={{ gap: 8, padding: "6px 8px", cursor: "pointer", borderRadius: 6, background: form.participants.includes(a.id) ? "var(--accent-soft)" : "transparent" }}>
                       <input type="checkbox" checked={form.participants.includes(a.id)} onChange={() => toggleParticipant(a.id)} />
                       <Avatar name={a.first + " " + a.last} color={a.color} size="xs" />
                       <span className="fw-600 text-sm" style={{ flex: 1 }}>{a.first} {a.last}</span>
+                      {/* How many of the ticked disciplines this athlete covers. */}
+                      {form.events.length > 1 && matched > 0 && (
+                        <span
+                          className="text-xs mono fw-700"
+                          title={`${matched}/${form.events.length}`}
+                          style={{
+                            padding: "1px 6px", borderRadius: 999,
+                            background: matched === form.events.length ? "var(--accent-soft)" : "var(--bg-2)",
+                            color: matched === form.events.length ? "var(--accent)" : "var(--fg-3)",
+                          }}
+                        >
+                          {matched}/{form.events.length}
+                        </span>
+                      )}
                       <span className="text-xs muted">{(a.disciplines || []).join(", ") || a.specialty}</span>
                     </label>
                   ))
@@ -898,7 +1208,7 @@ export function CompetitionFormModal({ competition, onClose, onSave, organizers,
             </div>
             )}
           </div>
-          {!isEdit && form.participants.length > 0 && <span className="text-xs muted">{form.participants.length} {t("race.participants").toLowerCase()}</span>}
+          {!isEdit && form.participants.length > 0 && <span className="text-xs muted">{form.participants.length} {t("competition.participants").toLowerCase()}</span>}
         </div>
       </div>
 
@@ -911,13 +1221,13 @@ export function CompetitionFormModal({ competition, onClose, onSave, organizers,
 
       {foglioAsk && (
         <ConfirmModal
-          title={t("race.sheet")}
-          message={t("race.foglioConfirm")}
+          title={t("competition.sheet")}
+          message={t("competition.foglioConfirm")}
           onCancel={() => setFoglioAsk(false)}
           choices={[
             { label: t("common.cancel"), variant: "ghost", onClick: () => setFoglioAsk(false) },
-            { label: t("race.foglioNoAthletes"), variant: "secondary", onClick: () => generateFoglio(false) },
-            { label: t("race.foglioWithAthletes"), variant: "primary", onClick: () => generateFoglio(true) },
+            { label: t("competition.foglioNoAthletes"), variant: "secondary", onClick: () => generateFoglio(false) },
+            { label: t("competition.foglioWithAthletes"), variant: "primary", onClick: () => generateFoglio(true) },
           ]}
         />
       )}

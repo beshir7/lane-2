@@ -26,13 +26,14 @@ const ATHLETE_MAP: FieldMap = {
   id: "id", first: "first", last: "last", initials: "initials", color: "color",
   nationality: "nationality", dob: "dob", age: "age", gender: "gender",
   specialty: "specialty", category: "category", squad: "squad", status: "status",
-  disciplines: "disciplines", joined: "joined", pb: "pb", medals: "medals",
+  disciplines: "disciplines", joined: "joined", pb: "pb", pbMeta: "pb_meta", medals: "medals",
   nextEvent: "next_event", coach: "coach", progress: "progress", bio: "bio",
   contact: "contact", email: "email", contract: "contract",
   placeOfBirth: "place_of_birth", residence: "residence", maritalStatus: "marital_status",
   employment: "employment", taxCode: "tax_code", fidalNumber: "fidal_number", club: "club",
   height: "height", heightUnit: "height_unit", weight: "weight", weightUnit: "weight_unit",
   sponsor: "sponsor", shoeSize: "shoe_size", clothingSize: "clothing_size",
+  whereabouts: "whereabouts",
 };
 
 const ORGANIZER_MAP: FieldMap = {
@@ -48,6 +49,7 @@ const COMPETITION_MAP: FieldMap = {
   contactSurname: "contact_surname", contactName: "contact_name",
   contactPhone: "contact_phone", contactEmail: "contact_email",
   disciplines: "disciplines", webSite: "web_site", notes: "notes",
+  followedBy: "followed_by",
 };
 
 const ENTRY_MAP: FieldMap = {
@@ -121,18 +123,47 @@ export interface LaneData {
   documents: LaneDocument[];
 }
 
+/** Opt-in timing, so production latency can be measured instead of guessed.
+ *  Turn on in the browser console with:  localStorage.setItem("lane-perf", "1")
+ *  …then reload. Off by default; costs nothing when disabled. */
+export function perfEnabled(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return localStorage.getItem("lane-perf") === "1" || new URLSearchParams(location.search).has("perf");
+  } catch {
+    return false;
+  }
+}
+
+/** Time one query and report how long it took and how many rows came back. */
+async function timed<T>(label: string, run: () => PromiseLike<T>, on: boolean): Promise<T> {
+  if (!on) return run();
+  const t0 = performance.now();
+  const res = await run();
+  const rows = (res as { data?: unknown[] })?.data?.length ?? 0;
+  // eslint-disable-next-line no-console
+  console.info(`[lane-perf] ${label.padEnd(16)} ${(performance.now() - t0).toFixed(0).padStart(5)} ms  ${rows} rows`);
+  return res;
+}
+
 // Pull every collection the signed-in user owns, in one round of parallel queries.
 export async function fetchLaneData(sb: SupabaseClient): Promise<LaneData> {
+  const on = perfEnabled();
+  const t0 = on ? performance.now() : 0;
   const [a, o, c, e, v, p, ev, d] = await Promise.all([
-    sb.from("athletes").select("*"),
-    sb.from("organizers").select("*"),
-    sb.from("competitions").select("*"),
-    sb.from("race_entries").select("*"),
-    sb.from("visas").select("*"),
-    sb.from("passports").select("*"),
-    sb.from("calendar_events").select("*"),
-    sb.from("documents").select("*"),
+    timed("athletes", () => sb.from("athletes").select("*"), on),
+    timed("organizers", () => sb.from("organizers").select("*"), on),
+    timed("competitions", () => sb.from("competitions").select("*"), on),
+    timed("race_entries", () => sb.from("race_entries").select("*"), on),
+    timed("visas", () => sb.from("visas").select("*"), on),
+    timed("passports", () => sb.from("passports").select("*"), on),
+    timed("calendar_events", () => sb.from("calendar_events").select("*"), on),
+    timed("documents", () => sb.from("documents").select("*"), on),
   ]);
+  if (on) {
+    // eslint-disable-next-line no-console
+    console.info(`[lane-perf] ${"ALL QUERIES".padEnd(16)} ${(performance.now() - t0).toFixed(0).padStart(5)} ms (parallel — this is the slowest one)`);
+  }
   return {
     athletes: (a.data ?? []).map((r) => fromRow<Athlete>(r, ATHLETE_MAP)),
     organizers: (o.data ?? []).map((r) => fromRow<Organizer>(r, ORGANIZER_MAP)),
