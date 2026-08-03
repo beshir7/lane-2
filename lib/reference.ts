@@ -57,10 +57,10 @@ export const DOC_CATEGORIES: DocCategory[] = [
 ];
 
 export const ROLES: Role[] = [
-  { id: "r-admin", name: "Admin", description: "Full access to all features and settings", users: 3, color: "var(--accent)" },
-  { id: "r-coach", name: "Coach", description: "Manage assigned athletes, schedules and competition entries", users: 8, color: "var(--success)" },
-  { id: "r-manager", name: "Manager", description: "Manage operations, travel, documents and CMS", users: 4, color: "var(--warning)" },
-  { id: "r-readonly", name: "Read-only", description: "View-only access to dashboards and reports", users: 12, color: "var(--info)" },
+  { id: "r-admin", name: "Admin", description: "Full access to all features and settings", color: "var(--accent)" },
+  { id: "r-coach", name: "Coach", description: "Manage assigned athletes, schedules and competition entries", color: "var(--success)" },
+  { id: "r-manager", name: "Manager", description: "Manage operations, travel, documents and CMS", color: "var(--warning)" },
+  { id: "r-readonly", name: "Read-only", description: "View-only access to dashboards and reports", color: "var(--info)" },
 ];
 
 export const PERMISSIONS: PermissionGroup[] = [

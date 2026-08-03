@@ -263,7 +263,7 @@ function GeneralSettings({ data }: { data: SettingsData }) {
 }
 
 function MembersSettings({ data }: { data: SettingsData }) {
-  const { currentUser, t } = useLane();
+  const { t } = useLane();
   const [showInvite, setShowInvite] = useState(false);
   const [query, setQuery] = useState("");
   const [roleFilter, setRoleFilter] = useState("all");
@@ -279,7 +279,7 @@ function MembersSettings({ data }: { data: SettingsData }) {
 
   return (
     <div className="col" style={{ gap: 12 }}>
-      <SettingCard title={t("set.members")} desc={`${data.members.length + 1} ${data.members.length === 0 ? t("set.membersDescOne") : t("set.membersDescMany")}`}>
+      <SettingCard title={t("set.members")} desc={`${data.members.length} ${data.members.length === 1 ? t("set.membersDescOne") : t("set.membersDescMany")}`}>
         <div className="row" style={{ marginBottom: 12 }}>
           <div className="input-group" style={{ flex: 1, maxWidth: 320 }}>
             <Icon name="search" size={14} />
@@ -294,35 +294,28 @@ function MembersSettings({ data }: { data: SettingsData }) {
             <tr><th>{t("set.name")}</th><th>{t("set.email")}</th><th>{t("set.role")}</th><th>{t("set.status")}</th><th>{t("set.lastActive")}</th><th></th></tr>
           </thead>
           <tbody>
-            {/* The account owner (you) — always an active admin, cannot be removed. */}
-            {(roleFilter === "all" || roleFilter === "r-admin") && (
-              <tr>
-                <td>
-                  <div className="row" style={{ gap: 10 }}>
-                    <Avatar name={currentUser?.name || t("set.you")} color={currentUser?.color || "#5b6ef5"} size="sm" dot="online" />
-                    <div className="fw-600">{currentUser?.name || t("set.you")} <span className="text-xs muted">· {t("set.you")}</span></div>
-                  </div>
-                </td>
-                <td className="text-sm muted mono">{currentUser?.email || ""}</td>
-                <td><Badge variant="accent">{t("set.admin")}</Badge></td>
-                <td><Badge variant="success" dot>{t("set.active")}</Badge></td>
-                <td className="text-sm muted">{t("set.now")}</td>
-                <td></td>
-              </tr>
-            )}
             {filtered.map((m) => (
               <tr key={m.id}>
                 <td>
                   <div className="row" style={{ gap: 10 }}>
                     <Avatar name={m.name} color={m.color} size="sm" dot={m.status === "active" ? "online" : "offline"} />
-                    <div className="fw-600">{m.name}</div>
+                    <div className="fw-600">
+                      {m.name}
+                      {m.isSelf && <span className="text-xs muted"> · {t("set.you")}</span>}
+                    </div>
                   </div>
                 </td>
                 <td className="text-sm muted mono">{m.email}</td>
                 <td><Badge><span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><span style={{ width: 6, height: 6, borderRadius: 999, background: roleColor(m.roleId) }} />{roleName(m.roleId)}</span></Badge></td>
                 <td><Badge variant={m.status === "active" ? "success" : m.status === "invited" ? "warning" : ""} dot>{m.status === "active" ? t("set.active") : m.status === "invited" ? t("set.invited") : t("set.inactive")}</Badge></td>
                 <td className="text-sm muted">{m.lastActive}</td>
-                <td><button className="icon-btn" title={t("set.removeMember")} onClick={() => data.removeMember(m.id)}><Icon name="trash" size={14} /></button></td>
+                <td>
+                  {/* Registered accounts are deleted from the Supabase dashboard —
+                      the admin API needed for that can't run in the browser. */}
+                  {!m.isAccount && (
+                    <button className="icon-btn" title={t("set.removeMember")} onClick={() => data.removeMember(m.id)}><Icon name="trash" size={14} /></button>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -391,8 +384,10 @@ function RBACSettings({ data }: { data: SettingsData }) {
     if (roles.length && !roles.some((r) => r.id === activeRole)) setActiveRole(roles.find((r) => r.id !== "r-admin")?.id || roles[0].id);
   }, [roles, activeRole]);
 
-  // Member counts per role (owner counts as admin).
-  const countFor = (roleId: string) => data.members.filter((m) => m.roleId === roleId).length + (roleId === "r-admin" ? 1 : 0);
+  // Member counts per role. Every signed-in account is now in data.members
+  // (mirrored from auth.users via profiles), so nothing is added on top —
+  // doing so counted the current user twice.
+  const countFor = (roleId: string) => data.members.filter((m) => m.roleId === roleId).length;
   const active = roles.find((r) => r.id === activeRole);
 
   const removeRole = async () => {

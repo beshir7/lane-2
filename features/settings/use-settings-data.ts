@@ -1,9 +1,15 @@
 "use client";
 
-// Settings data (personal / single-tenant model): workspace settings, invited
-// members, and role definitions — each owned by and visible only to the signed-in
-// user via RLS. Defaults are seeded into the DB on first use so the Roles matrix
-// and General form are backed by real rows, not hardcoded reference data.
+// Settings data for the shared workspace: workspace settings, the member list
+// and role definitions, all visible to every signed-in member. Defaults are
+// seeded into the DB on first use so the Roles matrix and General form are
+// backed by real rows, not hardcoded reference data.
+//
+// The member list is the union of two sources:
+//   `profiles` — real accounts, mirrored from auth.users by a trigger
+//   `members`  — people invited by email who have not registered yet
+// An invitation disappears from the list once its email shows up as an account,
+// so the same person is never listed twice.
 
 import { useCallback, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
@@ -30,6 +36,11 @@ export interface Member {
   status: string;
   color: string;
   lastActive: string;
+  /** True when this is a real signed-up account (a row in `profiles`) rather
+   *  than an invitation that hasn't been accepted yet. */
+  isAccount?: boolean;
+  /** True for the person currently signed in. */
+  isSelf?: boolean;
 }
 
 export interface RoleDef {
@@ -106,6 +117,20 @@ const rowToRole = (r: any): RoleDef => ({
 
 const newId = (p: string) => p + Math.random().toString(36).slice(2, 8);
 
+/** "3 days ago" style stamp for the members table; blank when never seen. */
+function fmtLastSeen(iso?: string | null): string {
+  if (!iso) return "—";
+  const then = new Date(iso).getTime();
+  if (isNaN(then)) return "—";
+  const mins = Math.round((Date.now() - then) / 60000);
+  if (mins < 2) return "Now";
+  if (mins < 60) return `${mins} min ago`;
+  const hours = Math.round(mins / 60);
+  if (hours < 24) return `${hours} h ago`;
+  const days = Math.round(hours / 24);
+  return days === 1 ? "Yesterday" : `${days} days ago`;
+}
+
 export function useSettingsData() {
   const [supabase] = useState(() => createClient());
   const [loading, setLoading] = useState(true);
@@ -132,10 +157,35 @@ export function useSettingsData() {
         setSettings(DEFAULT_SETTINGS);
       }
 
-      // Members.
-      const { data: mRows } = await supabase.from("members").select("*").order("created_at");
+      // Members = real accounts first, then invitations still outstanding.
+      const [{ data: pRows }, { data: mRows }] = await Promise.all([
+        supabase.from("profiles").select("*").order("created_at"),
+        supabase.from("members").select("*").order("created_at"),
+      ]);
       if (!active) return;
-      setMembers((mRows || []).map(rowToMember));
+
+      const accounts: Member[] = (pRows || []).map((p: any) => {
+        const name = `${p.first_name || ""} ${p.last_name || ""}`.trim() || (p.email || "").split("@")[0] || "Member";
+        return {
+          id: p.id,
+          name,
+          email: p.email || "",
+          roleId: "r-admin", // shared workspace: every account is an admin
+          status: "active",
+          color: p.color || "#5b6ef5",
+          lastActive: p.id === uid ? "Now" : fmtLastSeen(p.last_seen),
+          isAccount: true,
+          isSelf: p.id === uid,
+        };
+      });
+      const registered = new Set(accounts.map((a) => a.email.toLowerCase()));
+      const pending = (mRows || [])
+        .map(rowToMember)
+        .filter((m: Member) => !registered.has((m.email || "").toLowerCase()));
+      setMembers([...accounts, ...pending]);
+
+      // Stamp our own last-seen so the list means something to everyone else.
+      void supabase.from("profiles").update({ last_seen: new Date().toISOString() }).eq("id", uid);
 
       // Roles: seed the four defaults on first use, then load.
       let { data: rRows } = await supabase.from("roles").select("*").order("sort");
@@ -168,10 +218,16 @@ export function useSettingsData() {
     await supabase.from("members").insert({ id: m.id, user_id: userId, name: m.name, email: m.email, role_id: m.roleId, status: m.status, color: m.color, last_active: m.lastActive });
   }, [userId, supabase]);
 
+  // Only invitations can be withdrawn here. Deleting a real account requires
+  // the Supabase admin API (service_role), which cannot run in the browser —
+  // remove those from the Supabase dashboard under Authentication → Users.
   const removeMember = useCallback(async (id: string) => {
+    const target = members.find((m) => m.id === id);
+    if (target?.isAccount) return { error: { message: "Registered accounts are removed from the Supabase dashboard." } };
     setMembers((prev) => prev.filter((m) => m.id !== id));
     await supabase.from("members").delete().eq("id", id);
-  }, [supabase]);
+    return { error: null };
+  }, [members, supabase]);
 
   const toggleRolePerm = useCallback(async (roleId: string, permId: string) => {
     let nextPerms: string[] = [];

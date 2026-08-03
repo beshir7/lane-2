@@ -5,10 +5,12 @@
 //
 // SUPABASE MODE: the eight core collections (athletes, organizers,
 // competitions, race entries, visas, passports, calendar events, documents)
-// are loaded from and written to Supabase, scoped to the signed-in user by
-// Row-Level Security. Every mutation updates local state optimistically and
-// mirrors the change to the database. The remaining UI-only collections
-// (results, notifications, posts, …) live in memory for this session.
+// are loaded from and written to Supabase. This is ONE SHARED WORKSPACE —
+// every signed-in member sees and edits the same data, and every member is an
+// admin; Row-Level Security only keeps anonymous callers out. Every mutation
+// updates local state optimistically and mirrors the change to the database.
+// The remaining UI-only collections (results, notifications, posts, …) live in
+// memory for this session.
 // =========================================================================
 
 import { translate, type Lang } from "@/lib/i18n";
@@ -67,7 +69,7 @@ interface LaneContextValue {
   refresh: (force?: boolean) => Promise<void>;
 
   currentUser: CurrentUser | null;
-  // Personal model: the signed-in account owner is always the admin.
+  // Shared workspace: every signed-in member is an admin.
   isAdmin: boolean;
 
   athletes: Athlete[];
@@ -689,7 +691,7 @@ export function LaneProvider({ children }: { children: ReactNode }) {
   const resetAll = useCallback(() => {
     setAthletes([]); setCompetitions([]); setEvents([]); setResults({}); setReadNotifIds(new Set()); setDocuments([]);
     setUsers([]); setPosts([]); setAudit([]); setSessions([]); setPassports([]); setVisas([]); setOrganizers([]); setEntries([]);
-    if (userIdRef.current) persist(clearAllRows(supabase, userIdRef.current).then(() => ({ error: null })));
+    if (userIdRef.current) persist(clearAllRows(supabase).then(() => ({ error: null })));
     push({ title: "All data cleared", variant: "info" });
   }, [push, persist, supabase]);
 

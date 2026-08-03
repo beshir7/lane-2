@@ -1,8 +1,11 @@
 -- =========================================================================
 -- LAMS schema — one table per core entity used across the pages.
--- Every row is owned by a user (user_id -> auth.users). Row-Level Security
--- makes each user able to see/modify ONLY their own rows: even with a known id,
--- another user's rows are invisible. Run this first in the Supabase SQL editor.
+--
+-- This is ONE SHARED WORKSPACE: every signed-in member sees and edits the same
+-- data, and every member is an admin. `user_id` records who created a row, not
+-- who may see it — so it is nullable and set null on delete, letting a member
+-- be removed without taking the agency's athletes with them.
+-- Run this first in the Supabase SQL editor.
 --
 -- Date-like fields are stored as text because the app uses ISO strings ("2024-07-04")
 -- everywhere; nested/array fields use jsonb to round-trip the app's objects exactly.
@@ -11,7 +14,7 @@
 -- ---- ATHLETES -----------------------------------------------------------
 create table if not exists public.athletes (
   id             text primary key,
-  user_id        uuid not null references auth.users(id) on delete cascade,
+  user_id        uuid references auth.users(id) on delete set null,
   first          text not null default '',
   last           text not null default '',
   initials       text default '',
@@ -57,7 +60,7 @@ create table if not exists public.athletes (
 -- ---- ORGANIZERS ---------------------------------------------------------
 create table if not exists public.organizers (
   id         text primary key,
-  user_id    uuid not null references auth.users(id) on delete cascade,
+  user_id    uuid references auth.users(id) on delete set null,
   name       text not null default '',
   first_name text,
   last_name  text,
@@ -70,7 +73,7 @@ create table if not exists public.organizers (
 -- ---- COMPETITIONS -------------------------------------------------------
 create table if not exists public.competitions (
   id              text primary key,
-  user_id         uuid not null references auth.users(id) on delete cascade,
+  user_id         uuid references auth.users(id) on delete set null,
   name            text not null default '',
   short           text default '',
   location        text default '',
@@ -101,7 +104,7 @@ create table if not exists public.competitions (
 -- ---- RACE ENTRIES -------------------------------------------------------
 create table if not exists public.race_entries (
   id             text primary key,
-  user_id        uuid not null references auth.users(id) on delete cascade,
+  user_id        uuid references auth.users(id) on delete set null,
   competition_id text not null references public.competitions(id) on delete cascade,
   athlete_id     text not null references public.athletes(id) on delete cascade,
   discipline     text default '',
@@ -117,7 +120,7 @@ create table if not exists public.race_entries (
 -- ---- VISAS --------------------------------------------------------------
 create table if not exists public.visas (
   id                  text primary key,
-  user_id             uuid not null references auth.users(id) on delete cascade,
+  user_id             uuid references auth.users(id) on delete set null,
   athlete_id          text not null references public.athletes(id) on delete cascade,
   kind                text default 'Other',
   number              text,
@@ -139,7 +142,7 @@ create table if not exists public.visas (
 -- ---- PASSPORTS ----------------------------------------------------------
 create table if not exists public.passports (
   id         text primary key,
-  user_id    uuid not null references auth.users(id) on delete cascade,
+  user_id    uuid references auth.users(id) on delete set null,
   athlete_id text not null references public.athletes(id) on delete cascade,
   number     text default '',
   nation     text default '',
@@ -153,7 +156,7 @@ create table if not exists public.passports (
 -- ---- CALENDAR EVENTS ----------------------------------------------------
 create table if not exists public.calendar_events (
   id             text primary key,
-  user_id        uuid not null references auth.users(id) on delete cascade,
+  user_id        uuid references auth.users(id) on delete set null,
   title          text default '',
   category       text default 'training',
   date           text default '',
@@ -168,7 +171,7 @@ create table if not exists public.calendar_events (
 -- ---- DOCUMENTS ----------------------------------------------------------
 create table if not exists public.documents (
   id         text primary key,
-  user_id    uuid not null references auth.users(id) on delete cascade,
+  user_id    uuid references auth.users(id) on delete set null,
   name       text default '',
   type       text default 'pdf',
   category   text default 'media',
@@ -195,8 +198,16 @@ create index if not exists idx_events_user           on public.calendar_events(u
 create index if not exists idx_documents_user        on public.documents(user_id);
 
 -- =========================================================================
--- Row-Level Security: a user can touch ONLY rows where user_id = auth.uid().
--- One "for all" policy per table covers select/insert/update/delete.
+-- Row-Level Security: ONE SHARED WORKSPACE.
+--
+-- This is a single-agency system — every signed-in member sees and edits the
+-- same data, and every member is an admin. `user_id` still records who created
+-- each row (useful history), but it does NOT limit who can see it.
+--
+-- Anonymous callers get nothing: each policy is granted `to authenticated`.
+-- Note that this means anyone able to create an account has full access; if
+-- that isn't wanted, disable public signup in the Supabase dashboard under
+-- Authentication → Providers → Email.
 -- =========================================================================
 do $$
 declare t text;
@@ -208,8 +219,9 @@ begin
   loop
     execute format('alter table public.%I enable row level security;', t);
     execute format('drop policy if exists own_rows on public.%I;', t);
+    execute format('drop policy if exists shared_workspace on public.%I;', t);
     execute format(
-      'create policy own_rows on public.%I for all to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());',
+      'create policy shared_workspace on public.%I for all to authenticated using (true) with check (true);',
       t
     );
   end loop;
