@@ -224,8 +224,12 @@ export async function deleteRow(sb: SupabaseClient, entity: Entity, id: string) 
   return sb.from(table).delete().eq("id", id);
 }
 
-// Wipe every collection the user owns (used by "reset all").
-export async function clearAllRows(sb: SupabaseClient, userId: string) {
+// Wipe every collection (used by "reset all"). This is a shared workspace, so
+// it clears the whole agency's data, not just the rows the caller happened to
+// create — matching what the button says. Child tables go first so the deletes
+// don't race the foreign keys.
+export async function clearAllRows(sb: SupabaseClient) {
   const tables = ["race_entries", "visas", "passports", "documents", "calendar_events", "competitions", "athletes", "organizers"];
-  for (const t of tables) await sb.from(t).delete().eq("user_id", userId);
+  // PostgREST refuses an unfiltered delete; "id is not null" matches every row.
+  for (const t of tables) await sb.from(t).delete().not("id", "is", null);
 }
