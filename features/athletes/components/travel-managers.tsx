@@ -158,6 +158,7 @@ export function PassportManager({ athleteId, onClose }: { athleteId: string; onC
             ...f,
             number: r.fields.documentNumber || f.number,
             nation: r.fields.nationality || f.nation,
+            issued: r.fields.issueDate || f.issued,
             expiry: r.fields.expirationDate || f.expiry,
           }))}
         />
@@ -206,7 +207,12 @@ export function VisaManager({ athleteId, onClose }: { athleteId: string; onClose
           label={t("doc.visaPhoto")}
           photo={form.photo}
           onChange={(v) => setForm((f) => ({ ...f, photo: v }))}
-          onExtract={(r) => setForm((f) => ({ ...f, validTo: r.fields.expirationDate || f.validTo }))}
+          onExtract={(r) => setForm((f) => ({
+            ...f,
+            number: r.fields.documentNumber || f.number,
+            validFrom: r.fields.issueDate || f.validFrom,
+            validTo: r.fields.expirationDate || f.validTo,
+          }))}
         />
         <div className="divider" />
         {/* Optional details — kept only in case a copy of the visa can't live in the program. */}

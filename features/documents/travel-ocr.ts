@@ -22,13 +22,19 @@
 
 import { parse } from "mrz";
 
+// The fields the passport/visa forms actually have. Everything here maps to an
+// input the user would otherwise type; nothing is extracted "for interest".
+// firstName/lastName/sex come free with an MRZ read and are left in for that
+// reason, but nothing is failed or retried on their account.
 export interface ScanFields {
   documentNumber?: string;
-  nationality?: string;   // display name if known, else ISO-3 code
+  nationality?: string;    // display name if known, else ISO-3 code
+  issueDate?: string;      // ISO yyyy-mm-dd → passport "Issued" / visa "Valid from"
+  expirationDate?: string; // ISO yyyy-mm-dd → passport "Expiry"  / visa "Valid to"
   firstName?: string;
   lastName?: string;
-  birthDate?: string;      // ISO yyyy-mm-dd
-  expirationDate?: string; // ISO yyyy-mm-dd
+  birthDate?: string;      // ISO yyyy-mm-dd — also used to keep a date of birth
+                           // from being mistaken for an issue date
   sex?: string;
 }
 
@@ -46,7 +52,21 @@ const COUNTRY: Record<string, string> = {
   ETH: "Ethiopia", KEN: "Kenya", ITA: "Italy", ESP: "Spain", GBR: "United Kingdom",
   USA: "United States", NOR: "Norway", FRA: "France", GER: "Germany", NED: "Netherlands",
   MAR: "Morocco", QAT: "Qatar", UGA: "Uganda", TAN: "Tanzania", BDI: "Burundi", ERI: "Eritrea",
+  DEU: "Germany", NLD: "Netherlands", BEL: "Belgium", CHE: "Switzerland", AUT: "Austria",
+  PRT: "Portugal", POL: "Poland", SWE: "Sweden", DNK: "Denmark", FIN: "Finland",
+  IRL: "Ireland", GRC: "Greece", TUR: "Turkey", ROU: "Romania", HUN: "Hungary",
+  CZE: "Czechia", HRV: "Croatia", SVN: "Slovenia", SVK: "Slovakia", BGR: "Bulgaria",
+  RUS: "Russia", UKR: "Ukraine", CAN: "Canada", MEX: "Mexico", BRA: "Brazil",
+  ARG: "Argentina", AUS: "Australia", NZL: "New Zealand", JPN: "Japan", CHN: "China",
+  IND: "India", PAK: "Pakistan", RSA: "South Africa", ZAF: "South Africa", NGA: "Nigeria",
+  EGY: "Egypt", DZA: "Algeria", TUN: "Tunisia", SEN: "Senegal", CIV: "Côte d'Ivoire",
+  GHA: "Ghana", CMR: "Cameroon", RWA: "Rwanda", SOM: "Somalia", SDN: "Sudan",
+  SSD: "South Sudan", DJI: "Djibouti", TZA: "Tanzania", ZWE: "Zimbabwe", ZMB: "Zambia",
+  BHR: "Bahrain", ARE: "United Arab Emirates", SAU: "Saudi Arabia", KWT: "Kuwait", OMN: "Oman",
 };
+
+/** Recognised ISO-3 codes, used to tell a nationality from an adjacent word. */
+const ISO3 = new Set(Object.keys(COUNTRY));
 
 /** The only line lengths `mrz` accepts: TD1, TD2/MRV-B, TD3/MRV-A. */
 const MRZ_LENGTHS = [30, 36, 44];
@@ -190,7 +210,9 @@ function mrzCandidates(text: string): string[] {
   return out;
 }
 
-type Parsed = { fields: Record<string, string | null>; valid: boolean };
+// `isoDates` marks the printed path, which resolves full years from the page and
+// so needs none of the YYMMDD century-guessing the MRZ path does.
+type Parsed = { fields: Record<string, string | null>; valid: boolean; isoDates?: boolean };
 
 function tryParse(lines: string[]): Parsed | null {
   if (lines.length < 2) return null;
@@ -253,90 +275,262 @@ function decode(cands: string[]): Parsed | null {
 
 // ---- Printed-field fallback ---------------------------------------------
 // Not every travel document shows an MRZ on the side you photograph: a US
-// passport card keeps its MRZ on the back, and plenty of older visas have none
-// at all. The printed fields are right there though, so when no MRZ turns up we
-// read those instead — flagged as unverified, because unlike an MRZ they carry
-// no check digits.
+// passport card and a French national ID card both keep theirs on the back, and
+// plenty of older visas have none at all. The printed fields are right there
+// though, so when no MRZ turns up we read those instead — flagged as
+// unverified, because unlike an MRZ they carry no check digits.
+//
+// This path targets EXACTLY the four inputs the passport and visa forms have —
+// number, nationality, issue date, expiry date — and returns whatever it
+// managed to find. A document that yields three of the four is worth three
+// fields the user doesn't have to type, so nothing here fails wholesale.
 
 const MONTHS: Record<string, string> = {
   JAN: "01", FEB: "02", MAR: "03", APR: "04", MAY: "05", JUN: "06",
   JUL: "07", AUG: "08", SEP: "09", OCT: "10", NOV: "11", DEC: "12",
 };
 
-/** Every "29 NOV 2019" / "12JUN2024" / "29-NOV-2019" in the text, as ISO. */
-function findPrintedDates(text: string): string[] {
-  const out: string[] = [];
-  const re = /\b(\d{1,2})\s*[-.\s]?\s*([A-Z]{3})\s*[-.\s]?\s*((?:19|20)\d{2})\b/gi;
+/** A date found in the text, with where it was found — labels are matched by
+ *  proximity, so the position matters as much as the value. */
+type DateHit = { iso: string; index: number; len: number };
+
+const pad = (n: number) => String(n).padStart(2, "0");
+
+/**
+ * Every date in the text, in the order it appears.
+ *
+ * Separators vary by issuing country and OCR rarely gets them right anyway:
+ * French and Italian cards print "13 07 1990", passports print "29 NOV 2019",
+ * and a scanner turns any of "/", "." and "-" into each other freely. So all of
+ * them are accepted, including a plain space.
+ */
+function findDates(text: string): DateHit[] {
+  const hits: DateHit[] = [];
+  const add = (y: string, mo: number, d: number, index: number, len: number) => {
+    if (mo < 1 || mo > 12 || d < 1 || d > 31) return;
+    hits.push({ iso: `${y}-${pad(mo)}-${pad(d)}`, index, len });
+  };
   let m: RegExpExecArray | null;
-  while ((m = re.exec(text))) {
-    const mm = MONTHS[m[2].toUpperCase()];
-    const dd = parseInt(m[1], 10);
-    if (!mm || dd < 1 || dd > 31) continue;
-    out.push(`${m[3]}-${mm}-${String(dd).padStart(2, "0")}`);
+
+  // 29 NOV 2019 · 12JUN2024 · 29-NOV-2019
+  const alpha = /\b(\d{1,2})\s*[-.\s]?\s*([A-Z]{3})\s*[-.\s]?\s*((?:19|20)\d{2})\b/gi;
+  while ((m = alpha.exec(text))) {
+    const mo = MONTHS[m[2].toUpperCase()];
+    if (mo) add(m[3], +mo, +m[1], m.index, m[0].length);
   }
-  // Numeric forms too: 29/11/2019, 29.11.2019
-  const re2 = /\b(\d{1,2})[/.](\d{1,2})[/.]((?:19|20)\d{2})\b/g;
-  while ((m = re2.exec(text))) {
-    const dd = parseInt(m[1], 10), mo = parseInt(m[2], 10);
-    if (dd < 1 || dd > 31 || mo < 1 || mo > 12) continue;
-    out.push(`${m[3]}-${String(mo).padStart(2, "0")}-${String(dd).padStart(2, "0")}`);
-  }
-  return [...new Set(out)].sort();
+
+  // 13 07 1990 · 29/11/2019 · 11.02.2030 · 29-11-2019
+  const numeric = /\b(\d{1,2})\s*[-./\s]\s*(\d{1,2})\s*[-./\s]\s*((?:19|20)\d{2})\b/g;
+  while ((m = numeric.exec(text))) add(m[3], +m[2], +m[1], m.index, m[0].length);
+
+  // 1990-07-13
+  const iso = /\b((?:19|20)\d{2})[-./](\d{1,2})[-./](\d{1,2})\b/g;
+  while ((m = iso.exec(text))) add(m[1], +m[2], +m[3], m.index, m[0].length);
+
+  // Same date found by two patterns: keep the earliest sighting.
+  const seen = new Map<string, DateHit>();
+  for (const h of hits.sort((a, b) => a.index - b.index)) if (!seen.has(h.iso)) seen.set(h.iso, h);
+  return [...seen.values()].sort((a, b) => a.index - b.index);
+}
+
+// Label spellings, longest first so "DATE OF EXPIRY" wins over bare "EXPIR".
+// EN / FR / IT / ES, which covers the documents this agency handles.
+const DATE_LABELS = {
+  expiry: ["DATE OF EXPIRY", "DATE D'EXPIR", "DATE DEXPIR", "EXPIRY DATE", "VALABLE JUSQU",
+           "FECHA DE CADUCIDAD", "VALID UNTIL", "SCADENZA", "CADUCIDAD", "EXPIRES", "EXPIRY", "EXPIR"],
+  issue:  ["DATE OF ISSUE", "FECHA DE EXPEDICION", "DATE DE DELIV", "DATA DI RILASCIO",
+           "ISSUE DATE", "EMISSIONE", "DELIVREE", "DELIVRE", "RILASCIO", "ISSUED", "ISSUE"],
+  birth:  ["DATE OF BIRTH", "FECHA DE NACIMIENTO", "DATE DE NAISS", "DATA DI NASCITA",
+           "GEBURTSDATUM", "NAISSANCE", "NACIMIENTO", "NASCITA", "BIRTH"],
+};
+
+const NUMBER_LABELS = [
+  "PASSPORT CARD NO", "NUMERO DEL DOCUMENTO", "NUMERO DOCUMENTO", "PASSPORT NUMBER",
+  "DOCUMENT NUMBER", "N° DU DOCUMENT", "N DU DOCUMENT", "DU DOCUMENT", "CONTROL NUMBER",
+  "PASSPORT NO", "DOCUMENT NO", "NUMERO DE DOCUMENTO", "CARD NO", "PASAPORTE",
+];
+
+const NATIONALITY_LABELS = ["NATIONALITY", "NATIONALITE", "NAZIONALITA", "CITTADINANZA", "NACIONALIDAD"];
+
+// Three- and four-letter words that sit next to these labels on real documents
+// and would otherwise be read as a country code.
+const NOT_A_COUNTRY = new Set([
+  "DATE", "SEX", "SEXE", "NOM", "LIEU", "NAME", "CARD", "TYPE", "CODE", "BIRTH", "NAIS",
+  "DOB", "PAYS", "ETAT", "VILLE", "DATA", "LUOGO", "NUM", "NO", "AND", "THE", "OF",
+]);
+
+/**
+ * Blank out every date, preserving length so label positions stay valid.
+ * Used before scanning for country codes — see the call site for why.
+ */
+function maskDates(upper: string, dates: DateHit[]): string {
+  const chars = [...upper];
+  for (const d of dates) for (let i = d.index; i < d.index + d.len && i < chars.length; i++) chars[i] = " ";
+  return chars.join("");
 }
 
 /**
- * Read a document from its printed labels.
+ * Find `labels` in the text and return the date that belongs to one of them.
  *
- * Dates are assigned by ORDER rather than by matching a label, because OCR
- * mangles labels far more often than it mangles digits: on every passport,
- * card and visa the birth date is the earliest date printed and the expiry the
- * latest, with issue in between. That holds for both sample documents and
- * survives the label text being unreadable.
+ * "The next date after the label" is not good enough. Travel documents print
+ * their fields in COLUMNS, so a page reads as a row of labels followed by a row
+ * of values:
+ *
+ *     Date of issue      Date of expiry
+ *     02 MAR 2021        01 MAR 2026
+ *
+ * Taking the next date after "Date of expiry" yields 02 MAR 2021 — the issue
+ * date — and quietly puts an expiry three years early on the record. So a value
+ * on a following line is matched by COLUMN instead: the date whose horizontal
+ * position is closest to where the label starts.
  */
-function parsePrintedFields(text: string): Parsed | null {
-  const upper = text.toUpperCase();
-  const dates = findPrintedDates(upper);
-  if (dates.length < 2) return null;
-
-  const birth = dates[0];
-  const expiry = dates[dates.length - 1];
-  // An expiry that already passed is possible, but one before the birth date
-  // means we've misread something badly enough not to guess.
-  if (expiry <= birth) return null;
-
-  const after = (labels: string[], pattern: RegExp): string | undefined => {
-    for (const label of labels) {
-      const i = upper.indexOf(label);
-      if (i === -1) continue;
-      const m = upper.slice(i + label.length, i + label.length + 40).match(pattern);
-      if (m) return (m[1] || m[0]).trim();
-    }
-    return undefined;
+function dateNearLabel(upper: string, dates: DateHit[], labels: string[]): string | undefined {
+  const lineStarts = [0];
+  for (let i = 0; i < upper.length; i++) if (upper[i] === "\n") lineStarts.push(i + 1);
+  const posOf = (index: number) => {
+    let line = 0;
+    for (let i = 1; i < lineStarts.length && lineStarts[i] <= index; i++) line = i;
+    return { line, col: index - lineStarts[line] };
   };
 
-  const documentNumber = after(
-    ["PASSPORT CARD NO", "PASSPORT NUMBER", "PASSPORT NO", "CONTROL NUMBER", "DOCUMENT NO"],
-    /\b([A-Z0-9]{6,12})\b/
-  );
-  const lastName = after(["SURNAME", "COGNOME"], /\b([A-Z][A-Z'-]{1,})\b/);
-  const firstName = after(["GIVEN NAMES", "GIVEN NAME", "NOME"], /\b([A-Z][A-Z'-]{1,})\b/);
-  const nationality = after(["NATIONALITY", "NAZIONALITA"], /\b([A-Z]{3,4})\b/);
-  const sexRaw = after(["SEX", "SESSO"], /\b([MF])\b/);
+  for (const label of labels) {
+    const i = upper.indexOf(label);
+    if (i === -1) continue;
+    const end = i + label.length;
+    const at = posOf(i);
 
-  // ISO-formatted here; isoDate() below only understands YYMMDD, so hand back
-  // the 6-digit form it expects.
-  const toYymmdd = (iso: string) => iso.slice(2).replace(/-/g, "");
+    // Same line, after the label — unambiguous, take it.
+    const inline = dates.find((d) => d.index >= end && posOf(d.index).line === at.line);
+    if (inline) return inline.iso;
+
+    // Otherwise look below, within the field group, and match by column.
+    const below = dates
+      .filter((d) => {
+        const p = posOf(d.index);
+        return p.line > at.line && p.line <= at.line + 3;
+      })
+      .sort((a, b) =>
+        Math.abs(posOf(a.index).col - at.col) - Math.abs(posOf(b.index).col - at.col) ||
+        a.index - b.index
+      );
+    if (below.length) return below[0].iso;
+  }
+  return undefined;
+}
+
+/**
+ * First capture of `pattern` in the window following any of `labels` that also
+ * satisfies `accept`.
+ *
+ * The predicate has to be applied while scanning, not to the first match alone:
+ * a label is usually followed by its own translation ("N° DU DOCUMENT /
+ * Document No."), so the first thing matching a loose pattern is very often a
+ * word from the label itself rather than the value.
+ */
+function afterLabel(
+  upper: string,
+  labels: string[],
+  pattern: RegExp,
+  window = 60,
+  accept: (v: string) => boolean = () => true
+): string | undefined {
+  const re = new RegExp(pattern.source, pattern.flags.includes("g") ? pattern.flags : pattern.flags + "g");
+  for (const label of labels) {
+    const i = upper.indexOf(label);
+    if (i === -1) continue;
+    const slice = upper.slice(i + label.length, i + label.length + window);
+    re.lastIndex = 0;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(slice))) {
+      const v = (m[1] || m[0]).trim();
+      if (accept(v)) return v;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Work out which date is which.
+ *
+ * Labels first, because they're unambiguous when they survive OCR. When they
+ * don't, fall back on the arithmetic that holds for every travel document: the
+ * birth date is the earliest date on the page, the expiry the latest, and an
+ * issue date — if there is one — sits between them and is in the past.
+ */
+function assignDates(upper: string, dates: DateHit[]): { birth?: string; issued?: string; expiry?: string } {
+  const today = new Date().toISOString().slice(0, 10);
+  let birth = dateNearLabel(upper, dates, DATE_LABELS.birth);
+  let issued = dateNearLabel(upper, dates, DATE_LABELS.issue);
+  let expiry = dateNearLabel(upper, dates, DATE_LABELS.expiry);
+
+  const chronological = [...new Set(dates.map((d) => d.iso))].sort();
+  const spare = chronological.filter((d) => d !== birth && d !== issued && d !== expiry);
+
+  // Earliest unclaimed date is a birth date if it's implausibly old to be an
+  // issue date — nobody holds a travel document issued 30 years ago.
+  if (!birth && spare.length > 1 && spare[0] < `${new Date().getFullYear() - 25}-01-01`) {
+    birth = spare.shift();
+  }
+  if (!expiry && spare.length) {
+    const latest = spare[spare.length - 1];
+    if (!birth || latest > birth) expiry = spare.pop();
+  }
+  if (!issued && spare.length) {
+    const past = spare.filter((d) => d <= today && (!birth || d > birth));
+    if (past.length) issued = past[past.length - 1];
+  }
+
+  // Discard anything that contradicts the others rather than filling a form
+  // field with a date that cannot be right.
+  if (expiry && birth && expiry <= birth) expiry = undefined;
+  if (issued && expiry && issued >= expiry) issued = undefined;
+  if (issued && birth && issued <= birth) issued = undefined;
+  return { birth, issued, expiry };
+}
+
+/** Read the four form fields off the printed face of a document. */
+function parsePrintedFields(text: string): Parsed | null {
+  const upper = text.toUpperCase();
+  const dates = findDates(upper);
+  const { birth, issued, expiry } = assignDates(upper, dates);
+
+  // Document numbers are 6–12 alphanumerics containing at least one digit — the
+  // digit is what separates "X4RTBPFW4" from the words "DOCUMENT" and
+  // "SIGNATURE" printed beside it.
+  const documentNumber = afterLabel(upper, NUMBER_LABELS, /\b([A-Z0-9]{6,12})\b/, 60, (v) => /\d/.test(v));
+
+  // Country codes are hunted for in text with the dates blanked out, because
+  // month abbreviations collide with them outright — "14 SEP 1996" offers SEP,
+  // and MAR in "02 MAR 2021" is a perfectly good code for Morocco.
+  const masked = maskDates(upper, dates);
+  let nationality =
+    // A recognised code beside the label is the best evidence there is.
+    afterLabel(masked, NATIONALITY_LABELS, /\b([A-Z]{3})\b/, 80, (v) => ISO3.has(v)) ??
+    // Otherwise an unlisted code, as long as it isn't an ordinary document word.
+    afterLabel(masked, NATIONALITY_LABELS, /\b([A-Z]{3})\b/, 80, (v) => !NOT_A_COUNTRY.has(v));
+  if (!nationality) {
+    // No usable label — some cards print the code far from it, or spell the
+    // nationality out in words. Take the only recognised code on the page, if
+    // there is exactly one; more than one and there's no way to tell which.
+    const found = [...new Set((masked.match(/\b[A-Z]{3}\b/g) || []).filter((c) => ISO3.has(c)))];
+    if (found.length === 1) nationality = found[0];
+  }
+
+  // Anything at all is worth handing back; the user checks it either way.
+  if (!documentNumber && !nationality && !issued && !expiry) return null;
 
   return {
     valid: false,
+    isoDates: true,
     fields: {
       documentNumber: documentNumber || null,
       nationality: nationality || null,
-      firstName: firstName || null,
-      lastName: lastName || null,
-      birthDate: toYymmdd(birth),
-      expirationDate: toYymmdd(expiry),
-      sex: sexRaw || null,
+      issueDate: issued || null,
+      expirationDate: expiry || null,
+      birthDate: birth || null,
+      firstName: null,
+      lastName: null,
+      sex: null,
     },
   };
 }
@@ -381,18 +575,27 @@ export async function scanTravelDoc(file: File): Promise<ScanResult> {
       }
 
       // Still nothing: this side of the document has no MRZ (a passport card
-      // keeps it on the back). Read the printed fields instead — full charset
-      // this time, because the MRZ whitelist strips the spaces and lowercase
-      // that ordinary labels need.
+      // and a French ID card both keep it on the back). Read the printed fields
+      // instead — full charset this time, because the MRZ whitelist strips the
+      // spaces and lowercase that ordinary labels need.
+      //
+      // Two segmentation modes, because ID cards defeat either one alone: 3
+      // (auto) handles a document laid out as running text, 11 (sparse) handles
+      // labels scattered across columns around a portrait, which is what a
+      // national ID card is. The results are concatenated and parsed together —
+      // every field is found by label or by date, so extra text is harmless
+      // while a missing line is fatal.
       if (!parsed) {
-        await worker.setParameters({
-          tessedit_char_whitelist: "",
-          tessedit_pageseg_mode: "3" as unknown as never,
-        });
-        const { data } = await worker.recognize(prepare(img, 0, 1, false));
-        const text = data.text || "";
-        rawText = `${rawText}\n---\n${text}`;
-        parsed = parsePrintedFields(text);
+        await worker.setParameters({ tessedit_char_whitelist: "" });
+        const canvas = prepare(img, 0, 1, false);
+        let printed = "";
+        for (const psm of ["3", "11"]) {
+          await worker.setParameters({ tessedit_pageseg_mode: psm as unknown as never });
+          const { data } = await worker.recognize(canvas);
+          printed += (printed ? "\n" : "") + (data.text || "");
+        }
+        rawText = `${rawText}\n---\n${printed}`;
+        parsed = parsePrintedFields(printed);
         if (parsed) printedFallback = true;
       }
     } finally {
@@ -407,31 +610,43 @@ export async function scanTravelDoc(file: File): Promise<ScanResult> {
     return fail(
       chars < 40
         ? "Almost nothing was readable in that image — try a sharper, straight-on photo in good light."
-        : "Couldn't find a machine-readable zone or readable dates. If this is a passport card, photograph the BACK — that's where its code is.",
+        : "Read the text but found no document number, nationality or dates on it. If this is an ID or passport card, photograph the side showing those fields.",
       rawText
     );
   }
 
   const f = parsed.fields;
   const nat = (f.nationality || "").toUpperCase();
+  // The printed path resolves full years itself; only MRZ dates need decoding.
+  const dateOf = (v: string | null | undefined, kind: "birth" | "expiry") =>
+    !v ? undefined : parsed!.isoDates ? v : isoDate(v, kind);
+
   const fields: ScanFields = {
     documentNumber: f.documentNumber || undefined,
     nationality: nat ? COUNTRY[nat] || nat : undefined,
+    issueDate: dateOf(f.issueDate, "birth"),
+    expirationDate: dateOf(f.expirationDate, "expiry"),
     firstName: f.firstName || undefined,
     lastName: f.lastName || undefined,
-    birthDate: isoDate(f.birthDate || undefined, "birth"),
-    expirationDate: isoDate(f.expirationDate || undefined, "expiry"),
+    birthDate: dateOf(f.birthDate, "birth"),
     sex: f.sex || undefined,
   };
 
-  const gotExpiry = !!fields.expirationDate;
+  // Name the fields that were actually filled. A partial read is a useful read,
+  // and saying which parts landed is what tells the user where to look.
+  const filled = [
+    fields.documentNumber && "number",
+    fields.nationality && "nationality",
+    fields.issueDate && "issued",
+    fields.expirationDate && `expiry ${fields.expirationDate}`,
+  ].filter(Boolean) as string[];
+  const summary = filled.length ? filled.join(" · ") : "no form fields";
+
   const message = printedFallback
-    ? gotExpiry
-      ? `No code found — read the printed text · expiry ${fields.expirationDate}. Please check every field.`
-      : "No code found — read the printed text. Please check every field."
+    ? `No code found — read the printed text: ${summary}. Please check every field.`
     : parsed.valid
-    ? gotExpiry ? `Read successfully · expiry ${fields.expirationDate}` : "Read successfully."
-    : gotExpiry ? `Read (some checks failed) · expiry ${fields.expirationDate} — please verify` : "Read, but please verify the fields.";
+    ? `Read successfully · ${summary}`
+    : `Read (some checks failed) · ${summary} — please verify`;
 
   return { ok: true, message, valid: parsed.valid, fields, rawText };
 }
