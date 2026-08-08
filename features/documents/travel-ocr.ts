@@ -65,10 +65,65 @@ const COUNTRY: Record<string, string> = {
   GHA: "Ghana", CMR: "Cameroon", RWA: "Rwanda", SOM: "Somalia", SDN: "Sudan",
   SSD: "South Sudan", DJI: "Djibouti", TZA: "Tanzania", ZWE: "Zimbabwe", ZMB: "Zambia",
   BHR: "Bahrain", ARE: "United Arab Emirates", SAU: "Saudi Arabia", KWT: "Kuwait", OMN: "Oman",
+  THA: "Thailand", VNM: "Vietnam", PHL: "Philippines", IDN: "Indonesia", MYS: "Malaysia",
+  SGP: "Singapore", KOR: "South Korea", LKA: "Sri Lanka", NPL: "Nepal", BGD: "Bangladesh",
+  JOR: "Jordan", LBN: "Lebanon", ISR: "Israel", IRN: "Iran", IRQ: "Iraq",
 };
 
-/** Recognised ISO-3 codes, used to tell a nationality from an adjacent word. */
-const ISO3 = new Set(Object.keys(COUNTRY));
+/**
+ * Every ISO-3166-1 alpha-3 code, for validation only — display names live in
+ * COUNTRY above. Accepting any three-letter word standing near the nationality
+ * heading is what filed "ELL" and "REE" as nationalities, both of them scraps
+ * of border engraving. A code has to be a real one.
+ *
+ * The COUNTRY keys are folded in because travel and sporting documents also use
+ * codes that ISO never assigned — GER, NED, RSA, TAN.
+ */
+const ISO3166 = `
+ABW AFG AGO AIA ALA ALB AND ARE ARG ARM ASM ATA ATF ATG AUS AUT AZE BDI BEL BEN
+BES BFA BGD BGR BHR BHS BIH BLM BLR BLZ BMU BOL BRA BRB BRN BTN BVT BWA CAF CAN
+CCK CHE CHL CHN CIV CMR COD COG COK COL COM CPV CRI CUB CUW CXR CYM CYP CZE DEU
+DJI DMA DNK DOM DZA ECU EGY ERI ESH ESP EST ETH FIN FJI FLK FRA FRO FSM GAB GBR
+GEO GGY GHA GIB GIN GLP GMB GNB GNQ GRC GRD GRL GTM GUF GUM GUY HKG HMD HND HRV
+HTI HUN IDN IMN IND IOT IRL IRN IRQ ISL ISR ITA JAM JEY JOR JPN KAZ KEN KGZ KHM
+KIR KNA KOR KWT LAO LBN LBR LBY LCA LIE LKA LSO LTU LUX LVA MAC MAF MAR MCO MDA
+MDG MDV MEX MHL MKD MLI MLT MMR MNE MNG MNP MOZ MRT MSR MTQ MUS MWI MYS MYT NAM
+NCL NER NFK NGA NIC NIU NLD NOR NPL NRU NZL OMN PAK PAN PCN PER PHL PLW PNG POL
+PRI PRK PRT PRY PSE PYF QAT REU ROU RUS RWA SAU SDN SEN SGP SGS SHN SJM SLB SLE
+SLV SMR SOM SPM SRB SSD STP SUR SVK SVN SWE SWZ SXM SYC SYR TCA TCD TGO THA TJK
+TKL TKM TLS TON TTO TUN TUR TUV TWN TZA UGA UKR UMI URY USA UZB VAT VCT VEN VGB
+VIR VNM VUT WLF WSM YEM ZAF ZMB ZWE`.trim().split(/\s+/);
+
+const VALID_CODE = new Set([...ISO3166, ...Object.keys(COUNTRY)]);
+
+/**
+ * Country names and the nationality adjectives documents print instead of a
+ * code — a Thai visa says "THAI", a US passport spells out "UNITED STATES OF
+ * AMERICA". Without these, tightening the code check would just trade a wrong
+ * nationality for a blank one.
+ */
+const NATIONALITY_NAMES: Record<string, string> = Object.fromEntries(
+  Object.entries(COUNTRY).map(([code, name]) => [name.toUpperCase(), code])
+);
+Object.assign(NATIONALITY_NAMES, {
+  THAI: "THA", THAILAND: "THA", ETHIOPIAN: "ETH", KENYAN: "KEN", ITALIAN: "ITA",
+  SPANISH: "ESP", BRITISH: "GBR", AMERICAN: "USA", FRENCH: "FRA", GERMAN: "DEU",
+  DUTCH: "NLD", NORWEGIAN: "NOR", MOROCCAN: "MAR", QATARI: "QAT", UGANDAN: "UGA",
+  TANZANIAN: "TZA", ERITREAN: "ERI", CANADIAN: "CAN", CHINESE: "CHN",
+  INDIAN: "IND", JAPANESE: "JPN", TURKISH: "TUR", NIGERIAN: "NGA",
+  EGYPTIAN: "EGY", SOMALI: "SOM", RWANDAN: "RWA", BURUNDIAN: "BDI",
+  PORTUGUESE: "PRT", BELGIAN: "BEL", SWISS: "CHE", AUSTRIAN: "AUT",
+  SWEDISH: "SWE", DANISH: "DNK", FINNISH: "FIN", IRISH: "IRL", GREEK: "GRC",
+  POLISH: "POL", AUSTRALIAN: "AUS", BRAZILIAN: "BRA", MEXICAN: "MEX",
+});
+
+// Longest first so "UNITED STATES OF AMERICA" wins over "UNITED STATES".
+const NATIONALITY_NAME_RE = new RegExp(
+  `\\b(${Object.keys(NATIONALITY_NAMES)
+    .sort((a, b) => b.length - a.length)
+    .map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+    .join("|")})\\b`
+);
 
 /** The only line lengths `mrz` accepts: TD1, TD2/MRV-B, TD3/MRV-A. */
 const MRZ_LENGTHS = [30, 36, 44];
@@ -554,10 +609,11 @@ const NUMBER_LABELS = [
   "PASSPORT NUMBER", "CERTIFICATE NO", "N. DOCUMENTO", "SERIAL NUMBER", "IDENTITY NO",
   "PASSPORT NO", "DOCUMENT NO", "SERIAL NO", "PERMIT NO", "CARD NUMBER", "PASSPORT #",
   "CARD NO", "PASAPORTE", "USCIS", "DOC NO", "ID NO", "CARD #",
-  // Bare "Passport" last: on a passport card the number sits under a heading
-  // that OCR often clips to just the word, and by this point every more
-  // specific spelling has already been tried.
-  "PASSPORT",
+  // Deliberately NOT bare "PASSPORT". Every passport prints the word across the
+  // cover art and again down the side in three languages, nowhere near the
+  // number — on a real one it matched the engraving at the top-left corner and
+  // returned "RMRS1AN". A number with no label near it is better found by
+  // shape; see the fallback in parsePrintedFields.
 ];
 
 const NATIONALITY_LABELS = ["NATIONALITY", "NATIONALITE", "NAZIONALITA", "CITTADINANZA",
@@ -584,6 +640,18 @@ const NOT_A_COUNTRY = new Set([
   "DATE", "SEX", "SEXE", "NOM", "LIEU", "NAME", "CARD", "TYPE", "CODE", "BIRTH", "NAIS",
   "DOB", "PAYS", "ETAT", "VILLE", "DATA", "LUOGO", "NUM", "NO", "AND", "THE", "OF",
 ]);
+
+/**
+ * Every field heading the parser recognises, used to tell where one field's
+ * territory ends and the next begins. Only headings specific enough not to
+ * occur inside an ordinary value — a bare "TYPE" or "SEX" would fire on too
+ * much — plus the name headings, which is what a visa prints beside its post.
+ */
+const OTHER_LABELS = [
+  ...DATE_LABELS.expiry, ...DATE_LABELS.issue, ...DATE_LABELS.birth,
+  ...NUMBER_LABELS, ...NATIONALITY_LABELS, ...VISA_TYPE_LABELS, ...POST_LABELS,
+  "SURNAME", "GIVEN NAME", "ANNOTATION", "ENTRIES",
+].filter((l) => l.length >= 5);
 
 /**
  * Blank out every date, preserving length so label positions stay valid.
@@ -678,8 +746,16 @@ function nearLabel(
     const end = i + label.length;
     const at = posOf(i);
 
-    // Same line, after the label — unambiguous, take it.
-    const inline = hits.find((h) => h.index >= end && posOf(h.index).line === at.line);
+    // Same line, after the label — unambiguous, unless another field's heading
+    // stands between the two. A visa prints "Issuing Post Name · Control
+    // Number" across one row, and a scrap of border engraving past the second
+    // heading was read as "PERN" and handed back as the issuing post. Anything
+    // beyond the next heading belongs to that field, not this one.
+    const inline = hits.find((h) => {
+      if (h.index < end || posOf(h.index).line !== at.line) return false;
+      const between = upper.slice(end, h.index);
+      return !OTHER_LABELS.some((l) => between.includes(l));
+    });
     if (inline) return { ...inline, labelIndex: i };
 
     // Otherwise look below, within the field group, and match by column.
@@ -969,21 +1045,35 @@ function parsePrintedFields(text: string): Parsed | null {
   // other serials printed on a card ("5137821-07", "1-022810") carry hyphens
   // and no letter prefix, so they don't compete; more than one match means
   // there's no way to choose and nothing is filled.
+  // Letter-prefixed first: it is the more distinctive shape, so where both turn
+  // up the lettered one is the document number and the bare digits are a print
+  // code. Plain digits are how most passports number themselves though — a real
+  // US one reads 31195855 with its heading three columns away and unreachable —
+  // so they are tried second rather than not at all.
   if (!documentNumber) {
-    const shaped = [...new Set((masked.match(/\b[A-Z]{1,2}\d{6,9}\b/g) || []))];
-    if (shaped.length === 1) documentNumber = shaped[0];
+    for (const shape of [/\b[A-Z]{1,2}\d{6,9}\b/g, /\b\d{8,9}\b/g]) {
+      const shaped = [...new Set(masked.match(shape) || [])];
+      if (shaped.length === 1) { documentNumber = shaped[0]; break; }
+    }
   }
 
-  let nationality =
-    // A recognised code beside the label is the best evidence there is.
-    valueNearLabel(masked, NATIONALITY_LABELS, /\b([A-Z]{3})\b/, (v) => ISO3.has(v)) ??
-    // Otherwise an unlisted code, as long as it isn't an ordinary document word.
-    valueNearLabel(masked, NATIONALITY_LABELS, /\b([A-Z]{3})\b/, (v) => !NOT_A_COUNTRY.has(v));
+  // A real country code beside the label is the best evidence there is. It has
+  // to be a real one: "any three letters that aren't an obvious document word"
+  // let engraving through as a nationality.
+  const isCode = (v: string) => VALID_CODE.has(v) && !NOT_A_COUNTRY.has(v);
+  let nationality = valueNearLabel(masked, NATIONALITY_LABELS, /\b([A-Z]{3})\b/, isCode);
+
+  // Spelled out instead of coded, which is how a passport book usually prints it.
   if (!nationality) {
-    // No usable label — some cards print the code far from it, or spell the
-    // nationality out in words. Take the only recognised code on the page, if
-    // there is exactly one; more than one and there's no way to tell which.
-    const found = [...new Set((masked.match(/\b[A-Z]{3}\b/g) || []).filter((c) => ISO3.has(c)))];
+    const named = nearLabel(masked, matchHits(masked, NATIONALITY_NAME_RE), NATIONALITY_LABELS);
+    if (named) nationality = NATIONALITY_NAMES[named.value];
+  }
+
+  // No usable label — some cards print the code far from it. Take the only code
+  // on the page, if there is exactly one; more than one and there's no way to
+  // tell which is the holder's.
+  if (!nationality) {
+    const found = [...new Set((masked.match(/\b[A-Z]{3}\b/g) || []).filter(isCode))];
     if (found.length === 1) nationality = found[0];
   }
 
