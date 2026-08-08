@@ -1,3 +1,4 @@
+
 "use client";
 
 // Free, fully in-browser travel-document OCR. The image never leaves the device:
@@ -1044,7 +1045,7 @@ function assignDates(upper: string, dates: DateHit[]): { birth?: string; issued?
  */
 function deaccent(s: string): string {
   // eslint-disable-next-line no-control-regex
-  if (!/[^ -]/.test(s)) return s; // pure ASCII — nothing to do
+  if (!/[^\x00-\x7F]/.test(s)) return s; // pure ASCII — nothing to do
   return [...s].map((ch) => ch.normalize("NFD")[0]).join("");
 }
 
