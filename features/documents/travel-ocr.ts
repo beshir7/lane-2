@@ -115,6 +115,18 @@ Object.assign(NATIONALITY_NAMES, {
   PORTUGUESE: "PRT", BELGIAN: "BEL", SWISS: "CHE", AUSTRIAN: "AUT",
   SWEDISH: "SWE", DANISH: "DNK", FINNISH: "FIN", IRISH: "IRL", GREEK: "GRC",
   POLISH: "POL", AUSTRALIAN: "AUS", BRAZILIAN: "BRA", MEXICAN: "MEX",
+  // Italian, both the country name as an Italian document writes it and the
+  // adjective form its cards actually print ("Cittadinanza: ITALIANA").
+  ITALIANA: "ITA", ITALIANO: "ITA", ITALIA: "ITA", "STATI UNITI": "USA",
+  FRANCIA: "FRA", FRANCESE: "FRA", GERMANIA: "DEU", TEDESCA: "DEU",
+  SPAGNA: "ESP", SPAGNOLA: "ESP", "REGNO UNITO": "GBR", BRITANNICA: "GBR",
+  ETIOPIA: "ETH", ETIOPE: "ETH", KENIA: "KEN", KENIOTA: "KEN",
+  MAROCCO: "MAR", MAROCCHINA: "MAR", SVIZZERA: "CHE", BELGIO: "BEL",
+  "PAESI BASSI": "NLD", OLANDA: "NLD", GRECIA: "GRC", TURCHIA: "TUR",
+  PORTOGALLO: "PRT", POLONIA: "POL", SVEZIA: "SWE", DANIMARCA: "DNK",
+  NORVEGIA: "NOR", IRLANDA: "IRL", CINA: "CHN", GIAPPONE: "JPN",
+  BRASILE: "BRA", MESSICO: "MEX", EGITTO: "EGY", TUNISIA: "TUN",
+  ALGERIA: "DZA", NIGERIA: "NGA", SUDAFRICA: "ZAF", THAILANDIA: "THA",
 });
 
 // Longest first so "UNITED STATES OF AMERICA" wins over "UNITED STATES".
@@ -586,16 +598,19 @@ function findDates(text: string, monthFirst = false): DateHit[] {
 const DATE_LABELS = {
   expiry: ["DATE OF EXPIRATION", "DATE OF EXPIRY", "EXPIRATION DATE", "DATE D'EXPIR", "DATE DEXPIR",
            "EXPIRY DATE", "VALABLE JUSQU", "FECHA DE CADUCIDAD", "DATE OF EXPIR", "CARD EXPIRES",
+           // Italian cards word the expiry as a validity, not an expiry.
+           "DATA DI SCADENZA", "VALIDA FINO AL", "VALIDO FINO AL", "SCADE IL",
            "VALID UNTIL", "VALID THRU", "VALID TO", "GOOD UNTIL", "EXPIRES ON", "EXPIRATION",
            "SCADENZA", "CADUCIDAD", "EXPIRES", "EXPIRY", "EXPIR", "GULTIG BIS"],
   issue:  ["DATE OF ISSUANCE", "FECHA DE EXPEDICION", "FECHA DE EMISION", "DATA DI EMISSIONE",
            "DATE OF ISSUE", "DATA DI RILASCIO", "DATE DE DELIVRANCE", "RESIDENT SINCE",
+           "DATA DI RILASCIO", "RILASCIATO IL", "EMESSO IL", "DATA EMISSIONE",
            "DATE DE DELIV", "ISSUANCE DATE", "DATE ISSUED", "ISSUE DATE", "VALID FROM",
            "ISSUED ON", "ISSUED AT", "EMISSIONE", "DELIVREE", "DELIVRE", "RILASCIO",
            "EXPEDIDO", "ISSUED", "ISSUE"],
   birth:  ["DATE OF BIRTH", "FECHA DE NACIMIENTO", "DATE DE NAISSANCE", "DATA DI NASCITA",
-           "DATE DE NAISS", "GEBURTSDATUM", "BIRTH DATE", "NAISSANCE", "NACIMIENTO",
-           "NASCITA", "BIRTH", "D.O.B", "DOB"],
+           "DATE DE NAISS", "GEBURTSDATUM", "BIRTH DATE", "NATO IL", "NATA IL",
+           "NAISSANCE", "NACIMIENTO", "NASCITA", "BIRTH", "D.O.B", "DOB"],
 };
 
 // Ordered by how specifically each names THIS document. "Control number" comes
@@ -605,6 +620,7 @@ const DATE_LABELS = {
 const NUMBER_LABELS = [
   "CONTROL NUMBER", "CONTROL NO", "PASSPORT CARD NO", "PASSPORT CARD NUMBER",
   "NUMERO DEL DOCUMENTO", "NUMERO DE DOCUMENTO", "NUMERO DOCUMENTO", "DOCUMENT NUMBER",
+  "NUMERO PASSAPORTO", "NUMERO DELLA CARTA", "CARTA DI IDENTITA", "NUMERO CARTA", "PASSAPORTO",
   "IDENTIFICATION NO", "REGISTRATION NO", "N° DU DOCUMENT", "N DU DOCUMENT", "DU DOCUMENT",
   "PASSPORT NUMBER", "CERTIFICATE NO", "N. DOCUMENTO", "SERIAL NUMBER", "IDENTITY NO",
   "PASSPORT NO", "DOCUMENT NO", "SERIAL NO", "PERMIT NO", "CARD NUMBER", "PASSPORT #",
@@ -624,6 +640,8 @@ const NATIONALITY_LABELS = ["NATIONALITY", "NATIONALITE", "NAZIONALITA", "CITTAD
 // its machine-readable zone parsed cleanly.
 const VISA_TYPE_LABELS = ["VISA TYPE /CLASS", "VISA TYPE/CLASS", "VISA TYPE", "TYPE / CLASS", "TYPE/CLASS", "CLASS"];
 const POST_LABELS = ["ISSUING POST NAME", "ISSUING POST", "ISSUING AUTHORITY", "PLACE OF ISSUE",
+                     "AUTORITA DI RILASCIO", "LUOGO DI RILASCIO", "RILASCIATO DA",
+                     "AMBASCIATA", "CONSOLATO", "COMUNE DI", "AUTORITA",
                      "ISSUED AT", "CONSULATE", "EMBASSY"];
 
 // Label words that would otherwise be read as an issuing post — the label row
@@ -1015,9 +1033,24 @@ function assignDates(upper: string, dates: DateHit[]): { birth?: string; issued?
   return { birth, issued, expiry };
 }
 
+/**
+ * Fold accents onto their base letters, ONE CHARACTER AT A TIME so the string
+ * keeps its length — every label and value in this file is located by offset,
+ * and a string that shortens as it is normalised moves all of them.
+ *
+ * The label lists are written in plain ASCII, so this is what lets NAZIONALITÀ
+ * match "NAZIONALITA" and NATIONALITÉ match "NATIONALITE" instead of the parser
+ * silently failing to see a heading that is plainly on the card.
+ */
+function deaccent(s: string): string {
+  // eslint-disable-next-line no-control-regex
+  if (!/[^ -]/.test(s)) return s; // pure ASCII — nothing to do
+  return [...s].map((ch) => ch.normalize("NFD")[0]).join("");
+}
+
 /** Read the four form fields off the printed face of a document. */
 function parsePrintedFields(text: string): Parsed | null {
-  const upper = maskPlaceOfBirth(text.toUpperCase());
+  const upper = maskPlaceOfBirth(deaccent(text.toUpperCase()));
   // US documents write dates month-first. It only decides the genuinely
   // ambiguous ones — 08/21 resolves itself either way.
   const monthFirst = /UNITED STATES|\bU\.?S\.?A\.?\b/.test(upper);
@@ -1125,6 +1158,18 @@ function parsePrintedFields(text: string): Parsed | null {
 
 type TWorker = Awaited<ReturnType<typeof import("tesseract.js").createWorker>>;
 
+// The agency's documents are English and Italian, so the printed side is read
+// with both language models. It matters more than it sounds: an Italian card
+// says COGNOME, LUOGO DI NASCITA, SCADENZA, RILASCIO, CITTADINANZA — words an
+// English-only model has never seen and resolves letter by letter, which is
+// exactly when it starts inventing.
+//
+// The MRZ pass stays English-only on purpose. Its alphabet is already
+// restricted to A–Z, 0–9 and "<", so a second language model has nothing to
+// contribute there and would only cost load time and memory.
+const PRINT_LANGS = ["eng", "ita"];
+const MRZ_LANGS = "eng";
+
 // The MRZ alphabet only — stops "0/O" and "1/I" drifting into letters.
 // 6 = one uniform block of text, which is exactly what an MRZ strip is.
 const MRZ_PARAMS = {
@@ -1135,11 +1180,16 @@ const MRZ_PARAMS = {
 // Restrict the alphabet. Security print, guilloche and portrait edges make
 // Tesseract emit runs of "{Hy", "i!", "\\" and "~" that swamp the real text;
 // none of those characters appear on a travel document, so barring them removes
-// noise rather than signal. Accented letters are left out deliberately — every
-// field is uppercased before matching.
+// noise rather than signal.
+//
+// Accented letters ARE allowed, now that Italian is loaded. Barring them forces
+// the recogniser to spend NAZIONALITÀ or CITTÀ on some unaccented character it
+// likes less, which corrupts the word it is trying to read. Matching strips the
+// accents afterwards instead — see deaccent.
 const PRINT_PARAMS = {
   tessedit_char_whitelist:
-    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 /-.,:#'°",
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 /-.,:#'°" +
+    "ÀÁÂÄÈÉÊËÌÍÎÏÒÓÔÖÙÚÛÜÇÑàáâäèéêëìíîïòóôöùúûüçñ",
   // Canvases carry no DPI metadata, so Tesseract guesses — and guesses badly on
   // an upscaled image, which changes how it segments.
   user_defined_dpi: "300",
@@ -1185,8 +1235,8 @@ function getPool(): Promise<Pool> {
   if (!poolPromise) {
     poolPromise = (async () => {
       const Tesseract = await import("tesseract.js");
-      const make = async (params: Record<string, unknown>) => {
-        const w = await Tesseract.createWorker("eng");
+      const make = async (langs: string | string[], params: Record<string, unknown>) => {
+        const w = await Tesseract.createWorker(langs);
         await w.setParameters(params as never);
         return w;
       };
@@ -1197,8 +1247,8 @@ function getPool(): Promise<Pool> {
       const mrzCount = cores >= 6 ? MRZ_CROPS.length : 1;
       const printCount = Math.max(1, Math.min(PRINT_VARIANTS.length, cores - mrzCount - 1));
       const workers = await Promise.all([
-        ...Array.from({ length: mrzCount }, () => make(MRZ_PARAMS)),
-        ...Array.from({ length: printCount }, () => make(PRINT_PARAMS)),
+        ...Array.from({ length: mrzCount }, () => make(MRZ_LANGS, MRZ_PARAMS)),
+        ...Array.from({ length: printCount }, () => make(PRINT_LANGS, PRINT_PARAMS)),
       ]);
       return { mrz: workers.slice(0, mrzCount), print: workers.slice(mrzCount) };
     })();
