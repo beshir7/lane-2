@@ -29,8 +29,7 @@ function PhotoField({ label, photo, onChange, onExtract }: { label: string; phot
   const { t } = useLane();
   const inputRef = React.useRef<HTMLInputElement>(null);
   const [scanning, setScanning] = useState(false);
-  const [status, setStatus] = useState<{ ok: boolean; message: string; rawText?: string } | null>(null);
-  const [showRaw, setShowRaw] = useState(false);
+  const [status, setStatus] = useState<{ ok: boolean; message: string } | null>(null);
 
   const pick = (file?: File) => {
     if (!file) return;
@@ -45,8 +44,7 @@ function PhotoField({ label, photo, onChange, onExtract }: { label: string; phot
     setStatus(null);
     const result = await scanTravelDoc(file);
     setScanning(false);
-    setStatus({ ok: result.ok, message: result.message, rawText: result.rawText });
-    setShowRaw(false);
+    setStatus({ ok: result.ok, message: result.message });
     if (result.ok) onExtract?.(result);
   };
 
@@ -77,29 +75,13 @@ function PhotoField({ label, photo, onChange, onExtract }: { label: string; phot
               <Icon name="trash" size={13} /> {t("common.remove")}
             </button>
           )}
-          {onExtract && (
-            <span className="text-xs" style={{ color: scanning ? "var(--fg-3)" : status ? (status.ok ? "var(--success)" : "var(--warning)") : "var(--fg-3)", maxWidth: 220 }}>
-              {scanning
-                ? "Reading document…"
-                : status
-                ? status.message
-                : "Upload a clear photo of the passport photo-page (or MRZ visa) to auto-fill."}
+          {/* One short line, and only once there is something to say. Before a
+              scan the upload button already explains itself, so a sentence of
+              instructions underneath is just noise on the form. */}
+          {onExtract && (scanning || status) && (
+            <span className="text-xs" style={{ color: scanning ? "var(--fg-3)" : status!.ok ? "var(--success)" : "var(--warning)", maxWidth: 220 }}>
+              {scanning ? "Reading…" : status!.message}
             </span>
-          )}
-          {/* When a read fails, show what the scanner actually saw — it makes the
-              difference between "bad photo" and "wrong part of the document"
-              obvious instead of leaving the user guessing. */}
-          {onExtract && status && !status.ok && status.rawText && (
-            <>
-              <button type="button" className="btn btn-ghost btn-sm" style={{ alignSelf: "flex-start" }} onClick={() => setShowRaw((v) => !v)}>
-                <Icon name={showRaw ? "chevronUp" : "chevronDown"} size={12} /> {showRaw ? "Hide" : "Show"} what was read
-              </button>
-              {showRaw && (
-                <pre className="mono text-xs" style={{ maxWidth: 260, maxHeight: 160, overflow: "auto", background: "var(--bg-2)", border: "1px solid var(--border-1)", borderRadius: 6, padding: 8, whiteSpace: "pre-wrap", wordBreak: "break-all", color: "var(--fg-3)" }}>
-                  {status.rawText.trim() || "(nothing)"}
-                </pre>
-              )}
-            </>
           )}
         </div>
         <input ref={inputRef} type="file" accept="image/*" style={{ display: "none" }} onChange={(e) => pick(e.target.files?.[0])} />
@@ -210,6 +192,8 @@ export function VisaManager({ athleteId, onClose }: { athleteId: string; onClose
           onExtract={(r) => setForm((f) => ({
             ...f,
             number: r.fields.documentNumber || f.number,
+            type: r.fields.visaType || f.type,
+            embassy: r.fields.issuingPost || f.embassy,
             validFrom: r.fields.issueDate || f.validFrom,
             validTo: r.fields.expirationDate || f.validTo,
           }))}
